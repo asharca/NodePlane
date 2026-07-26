@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type DotTone, StatusDot } from "@/components/ui/status-dot";
-import { UnlockStrip } from "@/components/workbench/unlock-strip";
 import type { checker, subscription } from "@/lib/client.gen";
 import { cn } from "@/lib/utils";
 
@@ -140,8 +139,6 @@ export function SubList({
 							/>
 						))}
 			</div>
-
-			<UnlockStrip />
 		</div>
 	);
 }
