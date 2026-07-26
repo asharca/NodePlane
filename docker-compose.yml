@@ -23,7 +23,10 @@ services:
       start_period: 10s
 
   backend:
-    image: ghcr.io/renhedata/subs-check-re:v0.1.0
+    # Defaults to the newest published image. Set SUBS_CHECK_IMAGE_TAG to pin
+    # both application services to a release tag for rollback/reproducibility.
+    image: ghcr.io/renhedata/subs-check-re:${SUBS_CHECK_IMAGE_TAG:-latest}
+    pull_policy: always
     environment:
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -39,7 +42,8 @@ services:
     restart: on-failure:5
 
   frontend:
-    image: ghcr.io/renhedata/subs-check-re-frontend:v0.1.0
+    image: ghcr.io/renhedata/subs-check-re-frontend:${SUBS_CHECK_IMAGE_TAG:-latest}
+    pull_policy: always
     environment:
       ENCORE_URL: http://backend:8080
     ports:
