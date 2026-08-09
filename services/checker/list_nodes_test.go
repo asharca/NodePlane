@@ -106,3 +106,45 @@ func TestListNodesLatestAndIsolation(t *testing.T) {
 		t.Fatalf("B should be unchanged: %+v", b)
 	}
 }
+
+// A canceled/failed run can contain rows from workers that observed context
+// cancellation as a probe failure. Those partial rows must not replace the
+// last trustworthy result from a completed job.
+func TestListNodesIgnoresFailedJobResults(t *testing.T) {
+	ctx := context.Background()
+	subID := uuid.New().String()
+	userID := uuid.New().String()
+	proxy := map[string]any{"name": "A", "type": "ss", "server": "1.1.1.1", "port": 1111}
+	ids, err := defaultJobStore.replaceNodes(ctx, subID, []map[string]any{proxy})
+	if err != nil {
+		t.Fatalf("replaceNodes: %v", err)
+	}
+
+	completedJob := insertJob(t, ctx, subID, userID)
+	if err := defaultJobStore.insertResult(ctx, completedJob, ids[0], proxy, nodeCheckResult{
+		NodeName: "A", Alive: true, LatencyMs: 42,
+	}); err != nil {
+		t.Fatalf("insert completed result: %v", err)
+	}
+
+	failedJob := insertJob(t, ctx, subID, userID)
+	if _, err := db.Exec(ctx, `UPDATE check_jobs SET status='failed' WHERE id=$1`, failedJob); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+	if err := defaultJobStore.insertResult(ctx, failedJob, ids[0], proxy, nodeCheckResult{
+		NodeName: "A", Alive: false,
+	}); err != nil {
+		t.Fatalf("insert failed-job result: %v", err)
+	}
+
+	nodes, err := defaultJobStore.listNodes(ctx, subID)
+	if err != nil {
+		t.Fatalf("listNodes: %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+	if !nodes[0].Alive || nodes[0].LatencyMs != 42 {
+		t.Fatalf("failed job replaced last completed liveness: %+v", nodes[0])
+	}
+}

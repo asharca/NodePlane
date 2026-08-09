@@ -11,7 +11,7 @@ dead-node row, and a cut-short run becomes `failed` rather than a misleading
 partial success. What is **not** guaranteed is *fidelity* for a node that is
 genuinely alive:
 
-1. **Alive probe is one GET, no retry** (`probeLatency`, `mihomo.go:119`). A
+1. **Alive probe is one endpoint attempt, no retry** (`probeLatency`, `mihomo.go:119`). A
    transient blip or a node whose handshake exceeds the 10s client timeout is
    recorded as dead even though it is reachable. This is the dominant source of
    false negatives ("good node marked dead").

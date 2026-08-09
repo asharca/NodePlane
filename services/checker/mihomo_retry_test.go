@@ -3,6 +3,7 @@ package checker
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -14,7 +15,9 @@ func TestProbeLatencyWithRetry_RecoversAfterTransientFailures(t *testing.T) {
 
 	calls := 0
 	results := []bool{false, false, true}
-	probeLatencyFn = func(context.Context, *http.Client, string) (bool, int) {
+	var urls []string
+	probeLatencyFn = func(_ context.Context, _ *http.Client, url string) (bool, int) {
+		urls = append(urls, url)
 		i := calls
 		calls++
 		return results[i], 42
@@ -29,6 +32,18 @@ func TestProbeLatencyWithRetry_RecoversAfterTransientFailures(t *testing.T) {
 	}
 	if calls != 3 {
 		t.Errorf("want 3 attempts, got %d", calls)
+	}
+	wantURLs := []string{defaultAliveTestURL, cloudflareAliveTestURL, googleAliveTestURL}
+	if !reflect.DeepEqual(urls, wantURLs) {
+		t.Errorf("probe targets = %v, want %v", urls, wantURLs)
+	}
+}
+
+func TestAliveProbeTargets_ConfiguredURLFirstWithHTTPSFallbacks(t *testing.T) {
+	got := aliveProbeTargets("https://custom.example/health")
+	want := []string{"https://custom.example/health", defaultAliveTestURL, cloudflareAliveTestURL}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("targets = %v, want %v", got, want)
 	}
 }
 

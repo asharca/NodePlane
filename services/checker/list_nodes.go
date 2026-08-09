@@ -16,8 +16,8 @@ import (
 // Node is a persisted node enriched with its latest-known result. Metrics are
 // zero / Platforms empty / LastCheckedAt nil for a node that has never been
 // checked. Inheritance mirrors GetResults: alive/latency/ip come from the most
-// recent result row; speed/upload/country/platforms take the latest non-empty
-// value per node identity (server:port).
+// recent completed-job result row; speed/upload/country/platforms take the
+// latest non-empty value per node identity (server:port).
 type Node struct {
 	NodeID          string                     `json:"node_id"`
 	NodeName        string                     `json:"node_name"`
@@ -84,9 +84,10 @@ func (s *jobStore) listNodes(ctx context.Context, subscriptionID string) ([]Node
 			SELECT `+crKey+` AS node_key, cr.alive, cr.latency_ms, cr.ip,
 			       cr.speed_kbps, cr.upload_speed_kbps, cr.country, cr.platforms,
 			       cr.traffic_bytes, cr.checked_at
-			FROM check_results cr
-			JOIN check_jobs cj ON cj.id = cr.job_id
-			WHERE cj.subscription_id = $1
+				FROM check_results cr
+				JOIN check_jobs cj ON cj.id = cr.job_id
+				WHERE cj.subscription_id = $1
+				  AND cj.status = 'completed'
 		),
 		latest AS (
 			SELECT DISTINCT ON (node_key) node_key, alive, latency_ms, ip, traffic_bytes, checked_at

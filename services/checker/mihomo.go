@@ -17,12 +17,16 @@ import (
 
 	"github.com/metacubex/mihomo/adapter"
 	"github.com/metacubex/mihomo/constant"
+
+	"subs-check-re/services/checker/internal/aliveprobe"
 )
 
 const (
-	proxyTimeout = 10 * time.Second
-	aliveTestURL = "http://cp.cloudflare.com/generate_204"
-	ipLookupURL  = "http://ip-api.com/json/?fields=query,countryCode"
+	proxyTimeout           = 10 * time.Second
+	defaultAliveTestURL    = aliveprobe.DefaultTestURL
+	cloudflareAliveTestURL = aliveprobe.CloudflareTestURL
+	googleAliveTestURL     = aliveprobe.GoogleTestURL
+	ipLookupURL            = "http://ip-api.com/json/?fields=query,countryCode"
 )
 
 // Test seams: production points at the real network probes; tests override
@@ -38,14 +42,19 @@ const aliveProbeAttempts = 3
 // aliveProbeBackoff is the pause between failed alive probes; var so tests shrink it.
 var aliveProbeBackoff = 300 * time.Millisecond
 
-// probeLatencyWithRetry retries the single-shot alive probe up to
-// aliveProbeAttempts times, returning on the first success. A genuinely alive
-// node that drops one probe (a transient blip, or a handshake that just missed
-// the client timeout) is no longer misrecorded as dead. Context cancellation
-// aborts immediately.
+func aliveProbeTargets(configured string) []string {
+	return aliveprobe.Targets(configured)
+}
+
+// probeLatencyWithRetry tries up to aliveProbeAttempts independent HTTPS
+// targets, returning on the first success. This covers both transient failures
+// and deterministic blocking of one connectivity-check host. Context
+// cancellation aborts immediately.
 func probeLatencyWithRetry(ctx context.Context, client *http.Client, testURL string) (bool, int) {
+	targets := aliveProbeTargets(testURL)
 	for attempt := 1; attempt <= aliveProbeAttempts; attempt++ {
-		if alive, ms := probeLatencyFn(ctx, client, testURL); alive {
+		target := targets[(attempt-1)%len(targets)]
+		if alive, ms := probeLatencyFn(ctx, client, target); alive {
 			return true, ms
 		}
 		if attempt == aliveProbeAttempts || ctx.Err() != nil {
@@ -209,25 +218,11 @@ func get(ctx context.Context, client *http.Client, url string) (*http.Response, 
 	return client.Do(req)
 }
 
-// probeLatency does a single GET to the connectivity URL and returns whether the
-// proxy is alive plus the round-trip latency in ms. Matches clash-verge-rev's
-// single-request delay test. ms is 0 when not alive.
+// probeLatency performs one Mihomo-compatible URL test. Any completed HTTP
+// response proves transport reachability; status validation belongs to content
+// checks, not the alive gate. ms is 0 only when the request could not complete.
 func probeLatency(ctx context.Context, client *http.Client, testURL string) (alive bool, ms int) {
-	url := testURL
-	if url == "" {
-		url = aliveTestURL
-	}
-	start := time.Now()
-	resp, err := get(ctx, client, url)
-	if err != nil {
-		return false, 0
-	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return false, 0
-	}
-	return true, int(time.Since(start).Milliseconds())
+	return aliveprobe.Probe(ctx, client, testURL)
 }
 
 // getProxyInfo retrieves the external IP and country code via the proxy.

@@ -55,6 +55,8 @@ Returns every persisted node enriched with its latest-known result.
   imported subscription may have zero `check_jobs`, so the `check_jobs`-based ownership
   check used elsewhere is insufficient here).
 - **Latest-known semantics (per node identity `server:port`, same key as `GetResults`):**
+  - Only rows from `completed` jobs participate. Partial rows left by a failed
+    or canceled job must not replace the last trustworthy liveness result.
   - `alive`, `latency_ms`, `ip` come from the node's *most recent* result row.
   - `speed_kbps`, `upload_speed_kbps`, `country` inherit the latest *non-empty* value.
   - `platforms` inherit per key (latest non-empty value of each platform key).

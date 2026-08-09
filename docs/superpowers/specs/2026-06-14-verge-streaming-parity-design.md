@@ -1,7 +1,7 @@
 # Verge Streaming Parity — Region/Status Unlock + Engine Extensions + Latency
 
 **Date:** 2026-06-14
-**Status:** Approved
+**Status:** Approved — latency contract amended 2026-08-09
 **Branch:** `feat/verge-streaming-parity` (off `main`)
 
 ## Goal
@@ -31,7 +31,7 @@ This is the **Option B** scope chosen during brainstorming: engine + DB + fronte
 | Disney+ | Full bamgrid `POST` chain via new `http_post`; main-page regex fallback |
 | Bahamut | Multi-step GET with per-run cookie jar |
 | Netflix region | via fast.com CDN API (GET JSON), not the `Location` header |
-| Latency | Single GET `http://cp.cloudflare.com/generate_204`, 10s; merges alive+latency |
+| Latency | **Amended 2026-08-09:** Mihomo URLTest-compatible HEAD probe, HTTPS targets, any HTTP response proves transport reachability |
 | Claude/Gemini | verge's "exit-IP country vs blocklist" approach (semantics change vs our current real-probe; accepted) |
 
 A full read/write inventory of every consumer of the platform booleans was produced during brainstorming and drives the "Backend/Frontend changes" checklists below.
@@ -109,14 +109,32 @@ Expand to the full 15-key roster (below). Still used to distinguish built-in vs 
 
 ---
 
-## Section 3 — Latency (verge parity)
+## Section 3 — Latency (MetaCubeXD/Mihomo parity; amended 2026-08-09)
 
 `services/checker/mihomo.go`:
 
-- Change default constant: `aliveTestURL = "http://cp.cloudflare.com/generate_204"` (was gstatic).
-- Replace the two-request flow in `checkNode` (`isAlive` then `measureLatency`) with **one** request: a `probeLatency(ctx, client, url) (alive bool, ms int)` that does a single GET, returns `alive = (err==nil && 200<=status<400)` and `ms = elapsed`. On `!alive`, node is dead → skip the rest (unchanged downstream logic).
-- Per-user `latency_test_url` setting still overrides the default (unchanged threading).
-- `isAlive` / `measureLatency` are removed (or `measureLatency` folded into `probeLatency`). Proxy client timeout stays 10s (`proxyTimeout`), matching verge.
+The original single-GET Clash Verge contract is superseded. MetaCubeXD delegates
+manual latency tests to Mihomo's URLTest API, whose default behavior is a better
+fit for transport liveness:
+
+- Default target: `https://www.gstatic.com/generate_204`.
+- Send `HEAD` and do not follow redirects. A completed HTTP exchange with **any**
+  status (including 403/404/5xx) proves the proxy transport is reachable; only
+  request construction, dial, TLS, transport, timeout, or cancellation errors
+  fail the attempt.
+- Keep three bounded attempts. A user `latency_test_url` is attempted first;
+  remaining attempts use independent HTTPS fallbacks
+  (`cp.cloudflare.com/generate_204`, then `www.google.com/generate_204`), with
+  duplicates removed.
+- Latency is clamped to at least 1ms on success so `0` remains the unambiguous
+  failure value used by Mihomo-compatible clients.
+- Each URLTest attempt uses Mihomo's 30s client ceiling; the existing 90s
+  per-node context remains the total budget and may cancel an attempt sooner.
+  On final failure the node is dead and the expensive speed/media phases are
+  skipped, as before.
+
+This deliberately measures **proxy reachability**, not probe-endpoint health.
+Content/status validation remains the responsibility of platform checks.
 
 ---
 
