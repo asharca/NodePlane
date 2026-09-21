@@ -102,7 +102,7 @@ export function DetailPane({
 	);
 
 	// Trigger a check over the given node ids ([] = all), reusing the saved
-	// per-subscription check options.
+	// per-group check options.
 	const handleCheckNodes = (nodeIds: string[]) => {
 		const opts = loadCheckOptions(sub.id);
 		triggerMut.mutate(
@@ -118,7 +118,7 @@ export function DetailPane({
 				},
 				onError: (e) => {
 					if (isApiError(e) && (e.status === 409 || e.status === 412)) {
-						toast.error("A check is already running for this subscription");
+						toast.error("A check is already running for this node group");
 						return;
 					}
 					toast.error(isApiError(e) ? e.message : "Failed to start check");
@@ -251,7 +251,11 @@ export function DetailPane({
 						<EmptyState
 							icon={PlayCircle}
 							title="No nodes yet"
-							description="Refresh from the URL or import nodes to populate this list, then run a check."
+						description={
+							sub.kind === "node"
+								? "The direct node will appear here after it is imported."
+								: "Refresh from the URL or import nodes to populate this list, then run a check."
+						}
 						/>
 					) : (
 						<ResultsSection

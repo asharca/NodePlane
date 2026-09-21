@@ -122,15 +122,43 @@ func (s *jobStore) replaceNodes(ctx context.Context, subscriptionID string, prox
 		name, _ := p["name"].(string)
 		ptype, _ := p["type"].(string)
 		server, _ := p["server"].(string)
-		port := 0
-		if v, ok := p["port"].(int); ok {
-			port = v
-		}
+		port := proxyPort(p)
 		configJSON, _ := json.Marshal(p)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO nodes (id, subscription_id, name, type, server, port, config, enabled)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		`, id, subscriptionID, name, ptype, server, port, configJSON, !disabled[name]); err != nil {
+			return nil, fmt.Errorf("insert node %q: %w", name, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return nodeIDs, nil
+}
+
+// appendNodes adds parsed nodes without disturbing the existing list or its
+// enabled flags. The single-node endpoint validates the input before calling it.
+func (s *jobStore) appendNodes(ctx context.Context, subscriptionID string, proxies []map[string]any) ([]string, error) {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	nodeIDs := make([]string, len(proxies))
+	for i, p := range proxies {
+		id := uuid.New().String()
+		nodeIDs[i] = id
+		name, _ := p["name"].(string)
+		ptype, _ := p["type"].(string)
+		server, _ := p["server"].(string)
+		configJSON, _ := json.Marshal(p)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO nodes (id, subscription_id, name, type, server, port, config, enabled)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+		`, id, subscriptionID, name, ptype, server, proxyPort(p), configJSON); err != nil {
 			return nil, fmt.Errorf("insert node %q: %w", name, err)
 		}
 	}

@@ -18,6 +18,9 @@ type ImportNodesParams struct {
 	// (proxies:) or a V2Ray base64 blob / share links — same formats the URL
 	// fetcher accepts.
 	Content string `json:"content"`
+	// Append adds exactly one parsed node to the existing list instead of
+	// replacing it.
+	Append bool `json:"append"`
 }
 
 // ImportNodesResponse reports how many nodes were imported.
@@ -39,7 +42,7 @@ func ImportNodes(ctx context.Context, subscriptionID string, p *ImportNodesParam
 		return nil, errs.B().Code(errs.NotFound).Msg("subscription not found").Err()
 	}
 
-	count, err := importNodes(ctx, subscriptionID, p.Content)
+	count, err := importNodesMode(ctx, subscriptionID, p.Content, p.Append)
 	if err != nil {
 		return nil, errs.B().Code(errs.InvalidArgument).Msg(err.Error()).Err()
 	}
@@ -50,6 +53,10 @@ func ImportNodes(ctx context.Context, subscriptionID string, p *ImportNodesParam
 // Separated from the endpoint so it can be tested without seeding the
 // subscription service.
 func importNodes(ctx context.Context, subscriptionID, content string) (int, error) {
+	return importNodesMode(ctx, subscriptionID, content, false)
+}
+
+func importNodesMode(ctx context.Context, subscriptionID, content string, appendNode bool) (int, error) {
 	proxies, err := parseProxies([]byte(content))
 	if err != nil {
 		return 0, fmt.Errorf("could not parse nodes: %w", err)
@@ -57,7 +64,16 @@ func importNodes(ctx context.Context, subscriptionID, content string) (int, erro
 	if len(proxies) == 0 {
 		return 0, fmt.Errorf("no nodes found in the pasted content")
 	}
-	nodeIDs, err := defaultJobStore.replaceNodes(ctx, subscriptionID, proxies)
+	if appendNode && len(proxies) != 1 {
+		return 0, fmt.Errorf("single-node add accepts exactly one node")
+	}
+
+	var nodeIDs []string
+	if appendNode {
+		nodeIDs, err = defaultJobStore.appendNodes(ctx, subscriptionID, proxies)
+	} else {
+		nodeIDs, err = defaultJobStore.replaceNodes(ctx, subscriptionID, proxies)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to save nodes: %w", err)
 	}

@@ -60,7 +60,7 @@ export function NodeSourceMenu({
 			onSuccess: (r) =>
 				r.ok
 					? toast.success(`Reachable — ${r.count} nodes`)
-					: toast.error(r.error || "Could not fetch subscription"),
+					: toast.error(r.error || "Could not fetch node group"),
 			onError: (e) => toast.error(isApiError(e) ? e.message : "Test failed"),
 		});
 	};
@@ -117,7 +117,7 @@ export function NodeSourceMenu({
 						disabled={!hasUrl || testMut.isPending}
 						onClick={handleTest}
 					>
-						Test subscription
+						Test URL
 					</DropdownMenuItem>
 					<DropdownMenuItem onClick={() => setProxyOpen(true)}>
 						{viaNode ? "Fetch via node ✓" : "Fetch via node…"}
@@ -132,8 +132,8 @@ export function NodeSourceMenu({
 				<DialogContent>
 					<DialogTitle>Import nodes</DialogTitle>
 					<DialogDescription>
-						Paste Clash YAML (proxies:) or a V2Ray / base64 subscription. This
-						replaces the subscription's node list.
+						Paste Clash YAML (proxies:) or a V2Ray / base64 payload. This
+						replaces this group's node list.
 					</DialogDescription>
 					<textarea
 						value={content}
@@ -163,7 +163,7 @@ export function NodeSourceMenu({
 				<DialogContent>
 					<DialogTitle>Fetch via node</DialogTitle>
 					<DialogDescription>
-						Route this subscription's download through one of your existing
+						Route this group's download through one of your existing
 						nodes — for URLs the server can't reach directly.
 					</DialogDescription>
 					<select

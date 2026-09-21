@@ -78,10 +78,10 @@ function ExportSettingsPage() {
 
 			<section className="rounded-lg border border-border bg-card p-4 md:p-5">
 				<h2 className="font-semibold text-foreground text-sm">
-					Subscription URLs
+					Node group URLs
 				</h2>
 				<p className="mt-0.5 mb-3 text-muted-foreground text-xs">
-					Use these as subscription links in your proxy client.
+					Use these links in your proxy client.
 				</p>
 				<div className="flex flex-wrap items-center gap-2">
 					<Select value={subId} onValueChange={(v) => v && setSubId(v)}>
@@ -89,7 +89,7 @@ function ExportSettingsPage() {
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="all">All subscriptions</SelectItem>
+							<SelectItem value="all">All node groups</SelectItem>
 							{subs.map((s) => (
 								<SelectItem key={s.id} value={s.id}>
 									{s.name || s.url}

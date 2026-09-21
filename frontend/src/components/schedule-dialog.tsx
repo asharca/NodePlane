@@ -108,26 +108,28 @@ export function ScheduleDialog({
 			<DialogContent className="sm:max-w-lg">
 				<DialogTitle>{editing ? "Edit schedule" : "New schedule"}</DialogTitle>
 				<DialogDescription>
-					Run automatic checks on a cron schedule.
+					Run automatic checks for a node group on a cron schedule.
 				</DialogDescription>
 
 				<div className="mt-4 space-y-4">
 					<div className="space-y-1.5">
-						<Label className="text-xs">Subscription</Label>
+						<Label className="text-xs">Node group</Label>
 						<Select
 							value={subId}
 							onValueChange={(v) => v && setSubId(v)}
 							disabled={!!editing}
 						>
 							<SelectTrigger className="w-full">
-								<SelectValue placeholder="Choose a subscription…" />
+								<SelectValue placeholder="Choose a node group…" />
 							</SelectTrigger>
 							<SelectContent>
-								{subs.map((s) => (
+								{subs
+									.filter((s) => s.kind !== "node")
+									.map((s) => (
 									<SelectItem key={s.id} value={s.id}>
 										{s.name || s.url}
 									</SelectItem>
-								))}
+									))}
 							</SelectContent>
 						</Select>
 					</div>

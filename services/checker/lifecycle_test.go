@@ -72,6 +72,31 @@ func TestImportNodesPopulatesNodes(t *testing.T) {
 	}
 }
 
+func TestAddSingleNodeAppendsShareLink(t *testing.T) {
+	subID := "append-sub-" + uuid.New().String()
+	if _, err := defaultJobStore.replaceNodes(context.Background(), subID, runnerProxies()[:1]); err != nil {
+		t.Fatalf("seed nodes: %v", err)
+	}
+	vmess := "vmess://eyJ2IjoiMiIsInBzIjoiYWRkZWQiLCJhZGQiOiJzZXJ2ZXIuZXhhbXBsZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiJiODMxMzgxZC02MzI0LTRkNWMtYWQ0Zi04Y2RhNDQ4YjMwODExIiwiYWlkIjoiMCIsInNjeSI6ImF1dG8iLCJuZXQiOiJodHRwIiwidHlwZSI6Im5vbmUiLCJob3N0IjoiY2RuLmV4YW1wbGUuY29tIiwicGF0aCI6Ii9ncnBjIiwidGxzIjoidGxzIn0="
+
+	count, err := importNodesMode(context.Background(), subID, vmess, true)
+	if err != nil {
+		t.Fatalf("add node: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("want 1 added node, got %d", count)
+	}
+
+	var n, port int
+	if err := db.QueryRow(context.Background(),
+		`SELECT COUNT(*), COALESCE(MAX(port), 0) FROM nodes WHERE subscription_id=$1`, subID).Scan(&n, &port); err != nil {
+		t.Fatalf("query nodes: %v", err)
+	}
+	if n != 2 || port != 443 {
+		t.Errorf("want 2 nodes and vmess port 443, got %d nodes and port %d", n, port)
+	}
+}
+
 // Empty / unparseable content is rejected rather than wiping the node list.
 func TestImportNodesRejectsEmptyContent(t *testing.T) {
 	subID := "import-empty-sub-" + uuid.New().String()

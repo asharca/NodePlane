@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type DotTone, StatusDot } from "@/components/ui/status-dot";
@@ -37,7 +38,7 @@ function SubListItem({
 	sub: Subscription;
 	latest?: LatestJobSummary;
 	selected: boolean;
-	// Set only for the selected subscription while its check runs (mirrors
+	// Set only for the selected group while its check runs (mirrors
 	// the detail pane's SSE data — non-selected rows don't open streams).
 	liveProgressPct: number | null;
 	onSelect: () => void;
@@ -64,7 +65,7 @@ function SubListItem({
 			<div className="flex items-center gap-2">
 				<StatusDot tone={dotTone(sub, latest)} pulse={running} />
 				<span className="min-w-0 flex-1 truncate font-medium text-foreground text-sm">
-					{sub.name || sub.url}
+					{sub.name || (sub.kind === "node" ? "Single node" : sub.url)}
 				</span>
 				<span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
 					{running
@@ -74,6 +75,14 @@ function SubListItem({
 						: latest?.finished_at
 							? relativeTime(latest.finished_at)
 							: ""}
+				</span>
+			</div>
+			<div className="mt-1 flex items-center gap-1.5 pl-4">
+				<Badge tone={sub.kind === "node" ? "info" : "neutral"}>
+					{sub.kind === "node" ? "Single node" : "Subscription"}
+				</Badge>
+				<span className="min-w-0 truncate text-[11px] text-muted-foreground">
+					{sub.kind === "node" ? "Direct share link" : sub.url}
 				</span>
 			</div>
 			{running && liveProgressPct !== null ? (
@@ -114,10 +123,12 @@ export function SubList({
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			<div className="flex shrink-0 items-center justify-between border-border border-b px-4 py-3">
-				<h2 className="font-semibold text-foreground text-sm">Subscriptions</h2>
-				<Button variant="outline" size="sm" onClick={onAdd}>
-					<Plus size={13} /> Add
-				</Button>
+				<h2 className="font-semibold text-foreground text-sm">Node groups</h2>
+				<div className="flex items-center gap-1">
+					<Button variant="success" size="sm" onClick={onAdd}>
+						<Plus size={13} /> Add group
+					</Button>
+				</div>
 			</div>
 
 			<div className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">

@@ -23,7 +23,7 @@ export function ExportPopover({ subscriptionId }: { subscriptionId: string }) {
 			</PopoverTrigger>
 			<PopoverContent className="w-96">
 				<p className="mb-2 font-medium text-foreground text-xs">
-					Subscription URLs
+					Node group URLs
 				</p>
 				{apiKeyQuery.isLoading ? (
 					<Spinner />
@@ -44,7 +44,7 @@ export function ExportPopover({ subscriptionId }: { subscriptionId: string }) {
 							);
 						})}
 						<p className="pt-1 text-[11px] text-muted-foreground">
-							All-subscriptions URLs live in Settings → Export API.
+							All-group URLs live in Settings → Export API.
 						</p>
 					</div>
 				)}

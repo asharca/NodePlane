@@ -173,3 +173,27 @@ func TestLoadJobProxiesIncludeDeadAndSort(t *testing.T) {
 		t.Errorf("include-dead latency_asc: got %v", g)
 	}
 }
+
+func TestLoadJobProxiesExcludesDisabledNodes(t *testing.T) {
+	ctx := context.Background()
+	subID := "expdisabled-" + expUniq()
+	jobID := "expdisabled-job-" + expUniq()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO check_jobs (id, subscription_id, user_id, status, total, available, created_at, finished_at)
+		VALUES ($1,$2,'u','completed',1,1,NOW(),NOW())
+	`, jobID, subID); err != nil {
+		t.Fatalf("seed job: %v", err)
+	}
+	seedExportNode(t, ctx, subID, jobID, "disabled", true, 1000, nil)
+	if _, err := db.Exec(ctx, `UPDATE nodes SET enabled=false WHERE subscription_id=$1`, subID); err != nil {
+		t.Fatalf("disable node: %v", err)
+	}
+
+	got, err := loadJobProxies(ctx, jobID, subID, "", settingssvc.ExportTagConfig{}, exportPrefs{})
+	if err != nil {
+		t.Fatalf("loadJobProxies: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("disabled node must not be exported, got %d nodes", len(got))
+	}
+}

@@ -16,7 +16,7 @@ import { useMe } from "@/queries";
 const NAV_ITEMS = [
 	{
 		to: "/",
-		label: "Subscriptions",
+		label: "Node groups",
 		icon: List,
 		exact: true,
 		matchPrefix: "/",
