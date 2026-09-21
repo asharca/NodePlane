@@ -19,10 +19,24 @@ var db = sqldb.NewDatabase("subscription", sqldb.DatabaseConfig{
 	Migrations: "./migrations",
 })
 
-// Subscription represents a proxy subscription link.
+const (
+	KindSubscription = "subscription"
+	KindNode         = "node"
+)
+
+func normalizeKind(kind string) string {
+	if kind == KindNode {
+		return KindNode
+	}
+	return KindSubscription
+}
+
+// Subscription is a node group. A group can be backed by a remote subscription
+// URL or contain nodes imported directly by the user.
 type Subscription struct {
 	ID                string     `json:"id"`
 	UserID            string     `json:"user_id"`
+	Kind              string     `json:"kind"`
 	Name              string     `json:"name"`
 	URL               string     `json:"url"`
 	Enabled           bool       `json:"enabled"`
@@ -57,7 +71,7 @@ type ListResponse struct {
 func List(ctx context.Context) (*ListResponse, error) {
 	uid := encauth.Data().(*authsvc.UserClaims).UserID
 	rows, err := db.Query(ctx, `
-		SELECT id, user_id, name, url, enabled, cron_expr, created_at, last_run_at, export_include_dead, export_sort, COALESCE(fetch_proxy_config::text, '')
+		SELECT id, user_id, kind, name, url, enabled, cron_expr, created_at, last_run_at, export_include_dead, export_sort, COALESCE(fetch_proxy_config::text, '')
 		FROM subscriptions WHERE user_id = $1 ORDER BY created_at DESC
 	`, uid)
 	if err != nil {
@@ -68,7 +82,7 @@ func List(ctx context.Context) (*ListResponse, error) {
 	var subs []Subscription
 	for rows.Next() {
 		var s Subscription
-		if err := rows.Scan(&s.ID, &s.UserID, &s.Name, &s.URL, &s.Enabled,
+		if err := rows.Scan(&s.ID, &s.UserID, &s.Kind, &s.Name, &s.URL, &s.Enabled,
 			&s.CronExpr, &s.CreatedAt, &s.LastRunAt, &s.ExportIncludeDead, &s.ExportSort, &s.FetchProxyConfig); err != nil {
 			return nil, errs.B().Code(errs.Internal).Msg("scan failed").Err()
 		}
@@ -82,6 +96,7 @@ func List(ctx context.Context) (*ListResponse, error) {
 
 // CreateParams is the request body for POST /subscriptions.
 type CreateParams struct {
+	Kind              string  `json:"kind"`
 	Name              string  `json:"name"`
 	URL               string  `json:"url"`
 	CronExpr          *string `json:"cron_expr"`
@@ -93,26 +108,34 @@ type CreateParams struct {
 //
 //encore:api auth method=POST path=/subscriptions
 func Create(ctx context.Context, p *CreateParams) (*Subscription, error) {
-	if p.URL == "" {
+	kind := normalizeKind(p.Kind)
+	url := strings.TrimSpace(p.URL)
+	cronExpr := p.CronExpr
+	if kind == KindSubscription && url == "" {
 		return nil, errs.B().Code(errs.InvalidArgument).Msg("url is required").Err()
+	}
+	if kind == KindNode {
+		url = ""
+		cronExpr = nil
 	}
 	uid := encauth.Data().(*authsvc.UserClaims).UserID
 	id := uuid.New().String()
 	sort := normalizeExportSort(p.ExportSort)
 	_, err := db.Exec(ctx, `
-		INSERT INTO subscriptions (id, user_id, name, url, cron_expr, created_at, export_include_dead, export_sort)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, id, uid, p.Name, p.URL, p.CronExpr, time.Now(), p.ExportIncludeDead, sort)
+		INSERT INTO subscriptions (id, user_id, kind, name, url, cron_expr, created_at, export_include_dead, export_sort)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, id, uid, kind, p.Name, url, cronExpr, time.Now(), p.ExportIncludeDead, sort)
 	if err != nil {
 		return nil, errs.B().Code(errs.Internal).Msg("failed to create subscription").Err()
 	}
 	return &Subscription{
 		ID:                id,
 		UserID:            uid,
+		Kind:              kind,
 		Name:              p.Name,
-		URL:               p.URL,
+		URL:               url,
 		Enabled:           true,
-		CronExpr:          p.CronExpr,
+		CronExpr:          cronExpr,
 		ExportIncludeDead: p.ExportIncludeDead,
 		ExportSort:        sort,
 	}, nil
@@ -171,9 +194,9 @@ func Update(ctx context.Context, id string, p *UpdateParams) (*Subscription, err
 
 	var s Subscription
 	if err := db.QueryRow(ctx, `
-		SELECT id, user_id, name, url, enabled, cron_expr, created_at, last_run_at, export_include_dead, export_sort, COALESCE(fetch_proxy_config::text, '')
+		SELECT id, user_id, kind, name, url, enabled, cron_expr, created_at, last_run_at, export_include_dead, export_sort, COALESCE(fetch_proxy_config::text, '')
 		FROM subscriptions WHERE id = $1
-	`, id).Scan(&s.ID, &s.UserID, &s.Name, &s.URL, &s.Enabled, &s.CronExpr, &s.CreatedAt, &s.LastRunAt, &s.ExportIncludeDead, &s.ExportSort, &s.FetchProxyConfig); err != nil {
+	`, id).Scan(&s.ID, &s.UserID, &s.Kind, &s.Name, &s.URL, &s.Enabled, &s.CronExpr, &s.CreatedAt, &s.LastRunAt, &s.ExportIncludeDead, &s.ExportSort, &s.FetchProxyConfig); err != nil {
 		return nil, errs.B().Code(errs.Internal).Msg("fetch after update failed").Err()
 	}
 	return &s, nil
@@ -247,9 +270,9 @@ func GetSubscription(ctx context.Context, id string) (*Subscription, error) {
 	uid := encauth.Data().(*authsvc.UserClaims).UserID
 	var s Subscription
 	err := db.QueryRow(ctx, `
-		SELECT id, user_id, name, url, enabled, cron_expr, created_at, last_run_at, export_include_dead, export_sort, COALESCE(fetch_proxy_config::text, '')
+		SELECT id, user_id, kind, name, url, enabled, cron_expr, created_at, last_run_at, export_include_dead, export_sort, COALESCE(fetch_proxy_config::text, '')
 		FROM subscriptions WHERE id = $1 AND user_id = $2
-	`, id, uid).Scan(&s.ID, &s.UserID, &s.Name, &s.URL, &s.Enabled, &s.CronExpr, &s.CreatedAt, &s.LastRunAt, &s.ExportIncludeDead, &s.ExportSort, &s.FetchProxyConfig)
+	`, id, uid).Scan(&s.ID, &s.UserID, &s.Kind, &s.Name, &s.URL, &s.Enabled, &s.CronExpr, &s.CreatedAt, &s.LastRunAt, &s.ExportIncludeDead, &s.ExportSort, &s.FetchProxyConfig)
 	if err != nil {
 		return nil, errs.B().Code(errs.NotFound).Msg("subscription not found").Err()
 	}
@@ -270,9 +293,9 @@ type GetByIDParams struct {
 func GetSubscriptionByID(ctx context.Context, p *GetByIDParams) (*Subscription, error) {
 	var s Subscription
 	err := db.QueryRow(ctx, `
-		SELECT id, user_id, name, url, enabled, cron_expr, created_at, last_run_at, export_include_dead, export_sort, COALESCE(fetch_proxy_config::text, '')
+		SELECT id, user_id, kind, name, url, enabled, cron_expr, created_at, last_run_at, export_include_dead, export_sort, COALESCE(fetch_proxy_config::text, '')
 		FROM subscriptions WHERE id = $1
-	`, p.ID).Scan(&s.ID, &s.UserID, &s.Name, &s.URL, &s.Enabled, &s.CronExpr, &s.CreatedAt, &s.LastRunAt, &s.ExportIncludeDead, &s.ExportSort, &s.FetchProxyConfig)
+	`, p.ID).Scan(&s.ID, &s.UserID, &s.Kind, &s.Name, &s.URL, &s.Enabled, &s.CronExpr, &s.CreatedAt, &s.LastRunAt, &s.ExportIncludeDead, &s.ExportSort, &s.FetchProxyConfig)
 	if err != nil {
 		return nil, errs.B().Code(errs.NotFound).Msg("subscription not found").Err()
 	}

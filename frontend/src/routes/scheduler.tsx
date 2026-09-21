@@ -96,7 +96,7 @@ function SchedulerPage() {
 						<EmptyState
 							icon={CalendarClock}
 							title="No schedules yet"
-							description="Create one to check a subscription automatically — every few hours or at a fixed time."
+							description="Create one to check a node group automatically — every few hours or at a fixed time."
 							action={
 								<Button variant="success" onClick={() => setDialogOpen(true)}>
 									New schedule
@@ -109,7 +109,7 @@ function SchedulerPage() {
 						<table className="w-full border-collapse text-[12.5px]">
 							<thead>
 								<tr className="border-border border-b bg-card text-left text-[11px] text-muted-foreground uppercase tracking-[0.4px]">
-									<th className="px-3 py-2 font-medium">Subscription</th>
+					<th className="px-3 py-2 font-medium">Node group</th>
 									<th className="px-3 py-2 font-medium">Schedule</th>
 									<th className="px-3 py-2 font-medium">Next run</th>
 									<th className="px-3 py-2 font-medium">Last check</th>
@@ -216,7 +216,7 @@ function SchedulerPage() {
 					open={!!deleting}
 					onOpenChange={(o) => !o && setDeleting(null)}
 					title={`Delete schedule for "${deleting ? subName(deleting.subscription_id) : ""}"?`}
-					description="Automatic checks for this subscription will stop. The subscription itself is not affected."
+					description="Automatic checks for this node group will stop. The group itself is not affected."
 					pending={deleteMut.isPending}
 					onConfirm={handleDelete}
 				/>

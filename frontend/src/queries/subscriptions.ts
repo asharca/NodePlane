@@ -20,6 +20,33 @@ export function useCreateSubscription() {
 	});
 }
 
+export function useCreateNodeGroup() {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: async (args: {
+			params: subscription.CreateParams;
+			nodeContent?: string;
+		}) => {
+			const group = await client.subscription.Create(args.params);
+			if (args.nodeContent?.trim()) {
+				await client.checker.ImportNodes(group.id, {
+					content: args.nodeContent.trim(),
+					append: true,
+				});
+			}
+			return group;
+		},
+		onSuccess: (_group, args) => {
+			if (args.params.kind === "node") {
+				qc.invalidateQueries({ queryKey: queryKeys.nodes(_group.id) });
+			}
+		},
+		onSettled: () => {
+			qc.invalidateQueries({ queryKey: queryKeys.subscriptions() });
+		},
+	});
+}
+
 export function useUpdateSubscription() {
 	const qc = useQueryClient();
 	return useMutation({

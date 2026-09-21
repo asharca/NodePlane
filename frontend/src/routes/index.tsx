@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DetailPane } from "@/components/workbench/detail-pane";
 import { SubList } from "@/components/workbench/sub-list";
-import { SubscriptionDialog } from "@/components/workbench/subscription-dialog";
+import { NodeGroupDialog } from "@/components/workbench/subscription-dialog";
 import { isApiError } from "@/lib/client";
 import { cn } from "@/lib/utils";
 import {
@@ -46,14 +46,14 @@ function WorkbenchPage() {
 	const selected = subs.find((s) => s.id === selectedFromUrl);
 	const selectedId = selected?.id ?? null;
 
-	// Reset per-subscription view state when switching subscriptions.
+	// Reset per-group view state when switching groups.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: reset on id change only
 	useEffect(() => {
 		setActiveJobId(null);
 		setSelectedJobId(null);
 	}, [selectedId]);
 
-	// If the selected subscription already has a running/queued job (page
+	// If the selected group already has a running/queued job (page
 	// reload, scheduled run, 409 on trigger), attach to it.
 	const latestForSelected = selectedId ? latestJobs[selectedId] : undefined;
 	useEffect(() => {
@@ -105,7 +105,7 @@ function WorkbenchPage() {
 			{
 				onSuccess: () =>
 					toast.success(
-						selected.enabled ? "Subscription disabled" : "Subscription enabled",
+							selected.enabled ? "Node group disabled" : "Node group enabled",
 					),
 				onError: (e) =>
 					toast.error(isApiError(e) ? e.message : "Failed to update"),
@@ -117,7 +117,7 @@ function WorkbenchPage() {
 		if (!selected) return;
 		deleteMut.mutate(selected.id, {
 			onSuccess: () => {
-				toast.success("Subscription deleted");
+				toast.success("Node group deleted");
 				setDeleteOpen(false);
 				select(null);
 			},
@@ -173,26 +173,26 @@ function WorkbenchPage() {
 				) : subs.length === 0 && !subsQuery.isLoading ? (
 					<EmptyState
 						icon={Inbox}
-						title="No subscriptions yet"
-						description="Add your first subscription URL to start checking nodes."
+						title="No node groups yet"
+						description="Add a remote subscription or a single node to start checking."
 						action={
 							<Button variant="success" onClick={() => setAddOpen(true)}>
-								Add subscription
+								Add node group
 							</Button>
 						}
 					/>
 				) : (
 					<EmptyState
 						icon={Inbox}
-						title="Select a subscription"
-						description="Pick a subscription on the left to see its nodes and run checks."
+						title="Select a node group"
+						description="Pick a group on the left to see its nodes and run checks."
 					/>
 				)}
 			</div>
 
 			{/* Dialogs */}
-			<SubscriptionDialog open={addOpen} onOpenChange={setAddOpen} />
-			<SubscriptionDialog
+			<NodeGroupDialog open={addOpen} onOpenChange={setAddOpen} />
+			<NodeGroupDialog
 				open={editOpen}
 				onOpenChange={setEditOpen}
 				sub={selected ?? null}
@@ -201,7 +201,7 @@ function WorkbenchPage() {
 				open={deleteOpen}
 				onOpenChange={setDeleteOpen}
 				title={`Delete "${selected?.name || selected?.url || ""}"?`}
-				description="This removes the subscription, all of its nodes and the entire check history. This cannot be undone."
+				description="This removes the node group, all of its nodes and the entire check history. This cannot be undone."
 				confirmLabel="Delete"
 				pending={deleteMut.isPending}
 				onConfirm={handleDelete}

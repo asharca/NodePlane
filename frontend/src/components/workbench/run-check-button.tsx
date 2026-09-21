@@ -20,7 +20,7 @@ import { isApiError } from "@/lib/client";
 import { queryKeys, useRules, useTriggerCheck } from "@/queries";
 
 // Split button: primary click re-runs with the last-used options
-// (localStorage per subscription); the chevron opens the options popover.
+// (localStorage per node group); the chevron opens the options popover.
 export function RunCheckButton({
 	subscriptionId,
 	disabled,
@@ -67,7 +67,7 @@ export function RunCheckButton({
 					// 409/412 = a check is already running (manual or scheduled).
 					// Refresh latest-jobs so the workbench effect attaches to it.
 					if (isApiError(e) && (e.status === 409 || e.status === 412)) {
-						toast.error("A check is already running for this subscription");
+						toast.error("A check is already running for this node group");
 						qc.invalidateQueries({ queryKey: queryKeys.latestJobs() });
 						return;
 					}

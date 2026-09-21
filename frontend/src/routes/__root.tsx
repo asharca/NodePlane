@@ -61,7 +61,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 			{ charSet: "utf-8" },
 			{ name: "viewport", content: "width=device-width, initial-scale=1" },
 			{ title: "subs-check" },
-			{ name: "description", content: "Proxy subscription checker" },
+			{ name: "description", content: "Proxy node group checker" },
 		],
 		links: [
 			{ rel: "stylesheet", href: appCss },

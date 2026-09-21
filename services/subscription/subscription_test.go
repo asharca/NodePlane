@@ -38,6 +38,23 @@ func TestCreateAndListSubscription(t *testing.T) {
 	}
 }
 
+func TestCreateSingleNodeGroup(t *testing.T) {
+	ctx := withAuth()
+	cron := "0 * * * *"
+	created, err := Create(ctx, &CreateParams{
+		Kind:     KindNode,
+		Name:     "Direct node",
+		URL:      "https://ignored.example/node",
+		CronExpr: &cron,
+	})
+	if err != nil {
+		t.Fatalf("Create single-node group failed: %v", err)
+	}
+	if created.Kind != KindNode || created.URL != "" || created.CronExpr != nil {
+		t.Fatalf("single-node group was not normalized: %+v", created)
+	}
+}
+
 func TestDeleteSubscription(t *testing.T) {
 	ctx := withAuth()
 	created, err := Create(ctx, &CreateParams{URL: "https://example.com/sub2.yaml"})

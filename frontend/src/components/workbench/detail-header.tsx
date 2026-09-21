@@ -1,5 +1,7 @@
-import { ArrowLeft, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, Cable, MoreHorizontal } from "lucide-react";
+import { useState } from "react";
 import { CopyButton } from "@/components/copy-button";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -14,6 +16,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { AddNodeDialog } from "@/components/workbench/add-node-dialog";
 import { ExportPopover } from "@/components/workbench/export-popover";
 import { NodeSourceMenu } from "@/components/workbench/node-source-menu";
 import { RunCheckButton } from "@/components/workbench/run-check-button";
@@ -59,6 +62,8 @@ export function DetailHeader({
 	onDelete: () => void;
 	onBack: () => void;
 }) {
+	const [addNodeOpen, setAddNodeOpen] = useState(false);
+
 	return (
 		<div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-border border-b px-4 py-3 md:px-5">
 			<button
@@ -71,14 +76,19 @@ export function DetailHeader({
 			</button>
 
 			<div className="min-w-0 flex-1 basis-48">
-				<h1 className="truncate font-semibold text-[15px] text-foreground">
-					{sub.name || sub.url}
-				</h1>
+				<div className="flex min-w-0 items-center gap-2">
+					<h1 className="truncate font-semibold text-[15px] text-foreground">
+						{sub.name || (sub.kind === "node" ? "Single node" : sub.url)}
+					</h1>
+					<Badge tone={sub.kind === "node" ? "info" : "neutral"}>
+						{sub.kind === "node" ? "Single node" : "Subscription"}
+					</Badge>
+				</div>
 				<div className="flex items-center gap-1">
 					<p className="truncate font-mono text-[11px] text-muted-foreground">
-						{sub.url}
+						{sub.kind === "node" ? "Direct share link" : sub.url}
 					</p>
-					<CopyButton text={sub.url} />
+					{sub.url ? <CopyButton text={sub.url} /> : null}
 				</div>
 			</div>
 
@@ -112,11 +122,26 @@ export function DetailHeader({
 					</Select>
 				) : null}
 
-				<NodeSourceMenu
-					subscriptionId={sub.id}
-					hasUrl={!!sub.url}
-					viaNode={!!sub.fetch_proxy_config}
-				/>
+				{sub.kind === "subscription" ? (
+					<>
+						<Button
+							variant="success"
+							size="sm"
+							onClick={() => setAddNodeOpen(true)}
+							aria-label="Add node"
+							title="Add node"
+						>
+							<Cable size={13} />
+							<span className="hidden sm:inline">Add node</span>
+						</Button>
+
+						<NodeSourceMenu
+							subscriptionId={sub.id}
+							hasUrl={!!sub.url}
+							viaNode={!!sub.fetch_proxy_config}
+						/>
+					</>
+				) : null}
 
 				<ExportPopover subscriptionId={sub.id} />
 
@@ -126,7 +151,7 @@ export function DetailHeader({
 							<Button
 								variant="outline"
 								size="icon-sm"
-								aria-label="Subscription actions"
+							aria-label="Node group actions"
 							/>
 						}
 					>
@@ -152,6 +177,14 @@ export function DetailHeader({
 					onStarted={onRunStarted}
 				/>
 			</div>
+
+			{sub.kind === "subscription" ? (
+				<AddNodeDialog
+					open={addNodeOpen}
+					onOpenChange={setAddNodeOpen}
+					fixedSubscription={sub}
+				/>
+			) : null}
 		</div>
 	);
 }

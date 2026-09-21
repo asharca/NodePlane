@@ -116,12 +116,17 @@ export function useSetNodeEnabled(subscriptionId: string) {
 	});
 }
 
-// useImportNodes replaces a subscription's nodes from pasted content.
+// useImportNodes replaces or appends a subscription's nodes from pasted content.
 export function useImportNodes(subscriptionId: string) {
 	const qc = useQueryClient();
 	return useMutation({
-		mutationFn: (content: string) =>
-			client.checker.ImportNodes(subscriptionId, { content }),
+		mutationFn: (args: string | { content: string; append?: boolean }) => {
+			const input = typeof args === "string" ? { content: args } : args;
+			return client.checker.ImportNodes(subscriptionId, {
+				content: input.content,
+				append: input.append ?? false,
+			});
+		},
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: queryKeys.results(subscriptionId) });
 			qc.invalidateQueries({ queryKey: queryKeys.nodes(subscriptionId) });

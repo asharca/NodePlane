@@ -157,9 +157,9 @@ type ListResponse struct {
 
 // CreateParams is the request body for POST /scheduler.
 type CreateParams struct {
-	SubscriptionID string                    `json:"subscription_id"`
-	CronExpr       string                    `json:"cron_expr"`
-	Options        *checkersvc.CheckOptions  `json:"options"`
+	SubscriptionID string                   `json:"subscription_id"`
+	CronExpr       string                   `json:"cron_expr"`
+	Options        *checkersvc.CheckOptions `json:"options"`
 }
 
 // DeleteResponse is the response for DELETE /scheduler/:id.
@@ -226,6 +226,9 @@ func (s *Service) Create(ctx context.Context, p *CreateParams) (*ScheduledJob, e
 	sub, err := subsvc.GetSubscription(ctx, p.SubscriptionID)
 	if err != nil {
 		return nil, errs.B().Code(errs.NotFound).Msg("subscription not found").Err()
+	}
+	if sub.Kind == subsvc.KindNode {
+		return nil, errs.B().Code(errs.InvalidArgument).Msg("single-node groups cannot be scheduled").Err()
 	}
 
 	// Resolve options with defaults
