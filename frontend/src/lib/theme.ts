@@ -9,7 +9,9 @@ function storedTheme(): Theme | null {
 	try {
 		const value = window.localStorage.getItem(STORAGE_KEY);
 		return value === "light" || value === "dark" ? value : sessionTheme;
-	} catch { return sessionTheme; }
+	} catch {
+		return sessionTheme;
+	}
 }
 function getSnapshot(): Theme {
 	return document.documentElement.classList.contains("dark") ? "dark" : "light";
@@ -22,7 +24,10 @@ function subscribe(notify: () => void) {
 		notify();
 	};
 	const onStorage = (event: StorageEvent) => {
-		if (event.key === STORAGE_KEY || event.key === null) { sessionTheme = null; sync(); }
+		if (event.key === STORAGE_KEY || event.key === null) {
+			sessionTheme = null;
+			sync();
+		}
 	};
 	window.addEventListener(CHANGE_EVENT, notify);
 	window.addEventListener("storage", onStorage);
@@ -39,9 +44,16 @@ function toggleTheme() {
 	const next = getSnapshot() === "dark" ? "light" : "dark";
 	sessionTheme = next;
 	document.documentElement.classList.toggle("dark", next === "dark");
-	try { window.localStorage.setItem(STORAGE_KEY, next); } catch { /* Session-only when storage is unavailable. */ }
+	try {
+		window.localStorage.setItem(STORAGE_KEY, next);
+	} catch {
+		/* Session-only when storage is unavailable. */
+	}
 	window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 export function useTheme() {
-	return { theme: useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot), toggle: toggleTheme };
+	return {
+		theme: useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot),
+		toggle: toggleTheme,
+	};
 }
