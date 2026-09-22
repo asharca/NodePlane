@@ -1,7 +1,7 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { cva, type VariantProps } from "class-variance-authority";
+import { LoaderCircle } from "lucide-react";
 import { Button as AsharcaButton } from "@/components/asharca/button";
-import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 // Keep Base UI's render/event/ref contract, using the real Asharca button as its element.
@@ -53,13 +53,16 @@ function Button({
 	return (
 		<ButtonPrimitive
 			{...props}
-			render={render ?? <AsharcaButton />}
+			render={render ?? <AsharcaButton loading={loading} />}
 			data-slot="button"
 			aria-busy={loading || undefined}
 			className={cn(buttonVariants({ variant, size, className }))}
 			disabled={disabled || loading}
 		>
-			{loading && <Spinner className="size-3.5" />}
+			{/* Asharca owns its loader; only custom render targets need an adapter loader. */}
+			{loading && render && (
+				<LoaderCircle aria-hidden="true" className="size-3.5 motion-safe:animate-spin" />
+			)}
 			{children}
 		</ButtonPrimitive>
 	);
