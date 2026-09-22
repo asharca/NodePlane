@@ -1,0 +1,63 @@
+name: Format UI consumer once
+on:
+  push:
+    branches: ['codex/nodeplane-asharca-ui']
+    paths: ['.github/workflows/format-ui-consumer.yml']
+permissions:
+  contents: write
+jobs:
+  format:
+    if: github.ref == 'refs/heads/codex/nodeplane-asharca-ui'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/nodeplane-asharca-ui
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - run: bun install --frozen-lockfile
+        working-directory: frontend
+      - name: Correct test option and responsive widths
+        run: |
+          node --input-type=module <<'JS'
+          import { readFile, writeFile } from 'node:fs/promises';
+          const fixes = [
+            ['frontend/src/components/workbench/sub-list.test.tsx', 'name: "Paused", exact: true', 'name: "Paused"'],
+            ['frontend/src/components/ui/dialog.tsx', 'calc(100%-2rem)', 'calc(100%_-_2rem)'],
+            ['frontend/src/routes/login.tsx', '<Button variant="link" disabled={pending}', '<Button variant="link" className="h-auto w-full whitespace-normal text-xs leading-5" disabled={pending}'],
+          ];
+          for (const [file, before, after] of fixes) {
+            const source = await readFile(file, 'utf8');
+            if (!source.includes(before)) throw new Error(`Expected source not found in ${file}`);
+            await writeFile(file, source.replace(before, after));
+          }
+          JS
+      - name: Format application-owned changes only
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'JS'
+          import { execFileSync } from 'node:child_process';
+          const changed = execFileSync('git', ['diff', '--name-only', '--diff-filter=ACMR', 'e14cd39934656f8a6cff296d39097d041eb7a253', 'HEAD'], { encoding: 'utf8' }).trim().split('\n');
+          const files = changed.filter(file => file.startsWith('frontend/') && /\.(tsx?|mjs|css)$/.test(file) && (!file.includes('/components/asharca/') || file.endsWith('/components/asharca/input.tsx'))).map(file => file.slice('frontend/'.length));
+          execFileSync('./node_modules/.bin/biome', ['format', '--write', ...files], { stdio: 'inherit' });
+          JS
+      - name: Commit consumer formatting and remove one-off workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/format-ui-consumer.yml
+          git add frontend/src frontend/scripts
+          git commit -m 'style(ui): format Asharca consumers and fix test and responsive details'
+          git push origin HEAD:codex/nodeplane-asharca-ui
+      - name: Validate formatted sources
+        working-directory: frontend
+        run: |
+          bun run check-types
+          bun run test:unit
+          bun run build
