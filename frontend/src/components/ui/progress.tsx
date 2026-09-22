@@ -1,28 +1,6 @@
+import type { ComponentProps } from "react";
+import { Progress as AsharcaProgress } from "@/components/asharca/progress";
 import { cn } from "@/lib/utils";
-
-export function Progress({
-	value,
-	className,
-}: {
-	value: number; // 0–100
-	className?: string;
-}) {
-	const clamped = Math.max(0, Math.min(100, value));
-	return (
-		<div
-			role="progressbar"
-			aria-valuenow={Math.round(clamped)}
-			aria-valuemin={0}
-			aria-valuemax={100}
-			className={cn(
-				"h-1.5 w-full overflow-hidden rounded-full bg-secondary",
-				className,
-			)}
-		>
-			<div
-				className="h-full rounded-full transition-[width] duration-300 ease-out"
-				style={{ width: `${clamped}%`, background: "var(--color-progress)" }}
-			/>
-		</div>
-	);
+export function Progress({ value, label = "Check progress", className, ...props }: Omit<ComponentProps<"div">, "children"> & { value?: number | null; label?: string }) {
+	return <AsharcaProgress {...props} label={label} value={value ?? undefined} showValue={false} className={cn("relative h-1.5 gap-0 [&>div:first-child]:sr-only [&>div:last-child]:h-full", className)} />;
 }
