@@ -1,0 +1,28 @@
+name: Finish functional fixes
+on:
+  push:
+    branches: ['codex/nodeplane-asharca-ui']
+    paths: ['.github/workflows/finish-functional-fixes.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/codex/nodeplane-asharca-ui'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/nodeplane-asharca-ui
+      - name: Apply source-guarded corrections
+        run: |
+          python3 tests/finish-functional-fixes.py
+          gofmt -w services/checker/engine_tengo.go services/checker/engine_lua.go services/checker/engine_script.go services/checker/engine_runtime_test.go services/notify/senders_test.go
+          python3 -m py_compile tests/functional_api.py tests/fixtures/server.py
+          node --check frontend/scripts/functional-browser.mjs
+          rm tests/finish-functional-fixes.py .github/workflows/finish-functional-fixes.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u
+          git commit -m 'fix: correct script execution, cancellation and delivery feedback'
+          git push origin HEAD:codex/nodeplane-asharca-ui
