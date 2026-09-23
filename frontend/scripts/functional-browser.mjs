@@ -51,11 +51,22 @@ async function mutation(page, method, endpoint, action, expected = 200, readBody
     action(),
   ]);
   assert.equal(response.status(), expected, `${method} ${endpoint}`);
-  if (!readBody) return undefined; // void endpoints have no JSON response body
-  const error = await response.finished();
-  assert.equal(error, null, `${method} ${endpoint}: incomplete response`);
-  const text = await response.text();
-  return text ? JSON.parse(text) : undefined;
+  // DELETE and password-change endpoints return no entity. The following
+  // independent API assertions verify persistence; do not await a body
+  // Chromium may not mark finished after the originating component unmounts.
+  if (!readBody || method === 'DELETE' || response.status() === 204 || response.headers()['content-length'] === '0') return undefined;
+  let timer;
+  try {
+    return await Promise.race([
+      (async () => {
+        const error = await response.finished();
+        assert.equal(error, null, `${method} ${endpoint}: incomplete response`);
+        const text = await response.text();
+        return text ? JSON.parse(text) : undefined;
+      })(),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${method} ${endpoint}: response body deadline exceeded`)), 15000); }),
+    ]);
+  } finally { clearTimeout(timer); }
 }
 
 async function login(page, credentials) {
