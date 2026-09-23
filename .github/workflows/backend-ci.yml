@@ -13,7 +13,7 @@ concurrency:
 jobs:
   functional:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,6 +40,7 @@ jobs:
           mkdir -p test-results/backend frontend/test-results/functional
           encore version
       - name: Build real frontend and install browser runtime
+        id: build
         working-directory: frontend
         env:
           PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
@@ -48,46 +49,79 @@ jobs:
           bun run build
           npm install --prefix "$PLAYWRIGHT_RUNTIME" --no-package-lock --ignore-scripts playwright@1.55.0
           "$PLAYWRIGHT_RUNTIME/node_modules/.bin/playwright" install --with-deps chromium
-      - name: Go, real API, and real browser workflows
-        shell: bash
+      - name: Start loopback-only external-service fixtures
+        run: |
+          echo '127.0.0.1 ip-api.com' | sudo tee -a /etc/hosts
+          nohup python3 tests/fixtures/server.py > test-results/backend/fixtures.log 2>&1 &
+          echo $! > test-results/backend/fixture.pid
+          sudo nohup python3 tests/fixtures/server.py --port 80 --smtp-port 18083 > test-results/backend/ip-fixture.log 2>&1 &
+          echo $! > test-results/backend/ip-fixture.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18081/health >/dev/null && curl -fsS http://127.0.0.1/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Go unit and database regressions
+        id: go
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=15s 300s encore test -v -count=1 -timeout=3m ./... 2>&1 | tee test-results/backend/go-test.log
+      - name: Save Go diagnostics immediately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodeplane-go-tests
+          path: test-results/backend/go-test.log
+          retention-days: 14
+      - name: Start real backend and frontend
+        id: servers
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          nohup encore run --port 4000 > test-results/backend/server.log 2>&1 &
+          echo $! > test-results/backend/backend.pid
+          PORT=3000 HOST=127.0.0.1 ENCORE_URL=http://127.0.0.1:4000 nohup node frontend/.output/server/index.mjs > test-results/backend/frontend.log 2>&1 &
+          echo $! > test-results/backend/frontend.pid
+          for attempt in $(seq 1 120); do
+            if [ "$(curl --max-time 2 -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/auth/me || true)" = '401' ] && curl --max-time 2 -fsS http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            if ! kill -0 "$(cat test-results/backend/backend.pid)" 2>/dev/null; then cat test-results/backend/server.log; exit 1; fi
+            sleep 2
+          done
+          cat test-results/backend/server.log test-results/backend/frontend.log
+          exit 1
+      - name: Real API persistence and scheduled workflows
+        id: api
+        if: ${{ !cancelled() && steps.servers.outcome == 'success' }}
+        env:
+          NODEPLANE_E2E_DISPOSABLE: '1'
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=10s 180s python3 -u tests/functional_api.py 2>&1 | tee test-results/backend/functional-api.log
+      - name: Save API diagnostics immediately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodeplane-api-tests
+          path: |
+            test-results/backend/functional-api.*
+            test-results/backend/server.log
+          retention-days: 14
+      - name: Real browser workflows
+        id: browser
+        if: ${{ !cancelled() && steps.servers.outcome == 'success' }}
         env:
           NODEPLANE_E2E_DISPOSABLE: '1'
           PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
         run: |
-          set -euo pipefail
-          # Resolve the external IP lookup to a local HTTP fixture as well.
-          # Neither this fixture nor the test proxy forwards to the internet.
-          echo '127.0.0.1 ip-api.com' | sudo tee -a /etc/hosts
-          python3 tests/fixtures/server.py > test-results/backend/fixtures.log 2>&1 &
-          FIXTURE_PID=$!
-          sudo python3 tests/fixtures/server.py --port 80 --smtp-port 18083 > test-results/backend/ip-fixture.log 2>&1 &
-          IP_PID=$!
-          BACKEND_PID=''
-          FRONTEND_PID=''
-          trap 'kill "$BACKEND_PID" "$FRONTEND_PID" "$FIXTURE_PID" 2>/dev/null || true; sudo kill "$IP_PID" 2>/dev/null || true' EXIT
-          set +e
-          encore test -v -count=1 -timeout=3m ./... 2>&1 | tee test-results/backend/go-test.log
-          GO_STATUS=${PIPESTATUS[0]}
-          set -e
-          encore run --port 4000 > test-results/backend/server.log 2>&1 &
-          BACKEND_PID=$!
-          PORT=3000 HOST=127.0.0.1 ENCORE_URL=http://127.0.0.1:4000 node frontend/.output/server/index.mjs > test-results/backend/frontend.log 2>&1 &
-          FRONTEND_PID=$!
-          ready=false
-          for attempt in $(seq 1 120); do
-            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/auth/me || true)" = '401' ] && curl -fsS http://127.0.0.1:3000/login > /dev/null; then ready=true; break; fi
-            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then cat test-results/backend/server.log; exit 1; fi
-            sleep 2
+          set -o pipefail
+          (cd frontend && timeout --signal=TERM --kill-after=10s 180s node scripts/functional-browser.mjs) 2>&1 | tee test-results/backend/functional-browser.log
+      - name: Record outcomes and stop disposable services
+        if: always()
+        run: |
+          printf 'Go=%s API=%s Browser=%s\n' '${{ steps.go.outcome }}' '${{ steps.api.outcome }}' '${{ steps.browser.outcome }}' > test-results/backend/exit-status.txt
+          for service in backend frontend fixture; do
+            if [ -f "test-results/backend/$service.pid" ]; then kill "$(cat "test-results/backend/$service.pid")" 2>/dev/null || true; fi
           done
-          if [ "$ready" != 'true' ]; then cat test-results/backend/server.log test-results/backend/frontend.log; exit 1; fi
-          set +e
-          python3 tests/functional_api.py 2>&1 | tee test-results/backend/functional-api.log
-          API_STATUS=${PIPESTATUS[0]}
-          (cd frontend && node scripts/functional-browser.mjs) 2>&1 | tee test-results/backend/functional-browser.log
-          BROWSER_STATUS=${PIPESTATUS[0]}
-          set -e
-          printf 'Go=%s API=%s Browser=%s\n' "$GO_STATUS" "$API_STATUS" "$BROWSER_STATUS" | tee test-results/backend/exit-status.txt
-          test "$GO_STATUS" = 0 && test "$API_STATUS" = 0 && test "$BROWSER_STATUS" = 0
+          if [ -f test-results/backend/ip-fixture.pid ]; then sudo kill "$(cat test-results/backend/ip-fixture.pid)" 2>/dev/null || true; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
