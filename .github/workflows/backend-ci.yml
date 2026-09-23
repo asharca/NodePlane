@@ -1,14 +1,17 @@
-name: Backend CI
+name: Backend and Functional CI
 on:
   pull_request:
-    paths: ['services/**', 'go.mod', 'go.sum', 'tests/**', '.github/workflows/backend-ci.yml']
+    paths: ['services/**', 'frontend/**', 'go.mod', 'go.sum', 'tests/**', 'docs/**', 'README.md', '.github/workflows/backend-ci.yml']
+  push:
+    branches: ['main']
+    paths: ['services/**', 'frontend/**', 'go.mod', 'go.sum', 'tests/**', 'docs/**', 'README.md', '.github/workflows/backend-ci.yml']
 permissions:
   contents: read
 concurrency:
-  group: backend-${{ github.ref }}
+  group: functional-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  backend:
+  functional:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -18,6 +21,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
       - name: Install Encore CLI
         run: |
           curl --fail --location --retry 3 https://encore.dev/install.sh | bash
@@ -26,36 +35,62 @@ jobs:
         run: |
           printf '{}\n' > encore.app
           printf 'JWTSecret: "nodeplane-ci-only-secret-never-use-in-production"\n' > secrets.local.cue
-          mkdir -p test-results/backend
+          mkdir -p test-results/backend frontend/test-results/functional
           encore version
-      - name: Backend unit and database regression tests
-        shell: bash
+      - name: Build real frontend and install browser runtime
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
         run: |
-          set -o pipefail
-          encore test -v -count=1 ./... 2>&1 | tee test-results/backend/go-test.log
-      - name: Real API and persistence workflows
-        if: ${{ !cancelled() }}
+          bun install --frozen-lockfile
+          bun run build
+          npm install --prefix "$PLAYWRIGHT_RUNTIME" --no-package-lock --ignore-scripts playwright@1.55.0
+          "$PLAYWRIGHT_RUNTIME/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Go, real API, and real browser workflows
         shell: bash
         env:
           NODEPLANE_E2E_DISPOSABLE: '1'
+          PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
         run: |
           set -euo pipefail
+          # Resolve the external IP lookup to a local HTTP fixture as well.
+          # Neither this fixture nor the test proxy forwards to the internet.
+          echo '127.0.0.1 ip-api.com' | sudo tee -a /etc/hosts
           python3 tests/fixtures/server.py > test-results/backend/fixtures.log 2>&1 &
           FIXTURE_PID=$!
+          sudo python3 tests/fixtures/server.py --port 80 --smtp-port 18083 > test-results/backend/ip-fixture.log 2>&1 &
+          IP_PID=$!
+          BACKEND_PID=''
+          FRONTEND_PID=''
+          trap 'kill "$BACKEND_PID" "$FRONTEND_PID" "$FIXTURE_PID" 2>/dev/null || true; sudo kill "$IP_PID" 2>/dev/null || true' EXIT
+          set +e
+          encore test -v -count=1 -timeout=3m ./... 2>&1 | tee test-results/backend/go-test.log
+          GO_STATUS=${PIPESTATUS[0]}
+          set -e
           encore run --port 4000 > test-results/backend/server.log 2>&1 &
           BACKEND_PID=$!
-          trap 'kill "$BACKEND_PID" "$FIXTURE_PID" 2>/dev/null || true' EXIT
+          PORT=3000 HOST=127.0.0.1 ENCORE_URL=http://127.0.0.1:4000 node frontend/.output/server/index.mjs > test-results/backend/frontend.log 2>&1 &
+          FRONTEND_PID=$!
           ready=false
           for attempt in $(seq 1 120); do
-            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/auth/me || true)" = '401' ]; then ready=true; break; fi
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/auth/me || true)" = '401' ] && curl -fsS http://127.0.0.1:3000/login > /dev/null; then ready=true; break; fi
             if ! kill -0 "$BACKEND_PID" 2>/dev/null; then cat test-results/backend/server.log; exit 1; fi
             sleep 2
           done
-          if [ "$ready" != 'true' ]; then cat test-results/backend/server.log; exit 1; fi
+          if [ "$ready" != 'true' ]; then cat test-results/backend/server.log test-results/backend/frontend.log; exit 1; fi
+          set +e
           python3 tests/functional_api.py 2>&1 | tee test-results/backend/functional-api.log
+          API_STATUS=${PIPESTATUS[0]}
+          (cd frontend && node scripts/functional-browser.mjs) 2>&1 | tee test-results/backend/functional-browser.log
+          BROWSER_STATUS=${PIPESTATUS[0]}
+          set -e
+          printf 'Go=%s API=%s Browser=%s\n' "$GO_STATUS" "$API_STATUS" "$BROWSER_STATUS" | tee test-results/backend/exit-status.txt
+          test "$GO_STATUS" = 0 && test "$API_STATUS" = 0 && test "$BROWSER_STATUS" = 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: nodeplane-backend-tests
-          path: test-results/backend/
+          name: nodeplane-functional-tests
+          path: |
+            test-results/backend/
+            frontend/test-results/functional/
           retention-days: 14
