@@ -121,6 +121,7 @@ ENCORE_URL=http://localhost:4000 bun run start
 | 真实 HTTP 功能 | 注册登录、数据持久化、节点与订阅、检测与取消、计划任务、规则、导出、通知、跨用户隔离等。使用真实 Encore 服务和 PostgreSQL。 | `tests/functional_api.py` |
 | 浏览器功能 | 真实页面操作经 `/api` 代理调用真实后端，并核对请求和保存后的状态。 | `frontend/scripts/functional-browser.mjs` |
 | UI 视觉冒烟 | 明暗主题、响应式布局、导航、错误/空状态及 README 截图。此层使用模拟 API。 | `frontend/scripts/ui-smoke.mjs` |
+| 容器发布回归 | 镜像命名与标签、Compose 引用、真实前后端镜像构建和前端容器 `/login` 启动验证；PR 不推送或部署。 | `tests/test_image_metadata.py`、`.github/workflows/deploy.yml` |
 
 详细启动方式、覆盖矩阵、报告位置及边界见 [功能测试说明](docs/testing.md)。GitHub Actions 分别执行前端检查和后端/浏览器功能测试，失败时上传诊断报告。
 
@@ -132,15 +133,19 @@ ENCORE_URL=http://localhost:4000 bun run start
 
 ### 部署前先检查配置
 
-目前仓库的 `docker-compose.yml` 和 `deploy/infra.config.json` 包含维护者部署环境的示例值，包括数据库地址、域名和历史镜像名；**不是复制 `.env.example` 后就能直接运行的通用一键部署模板**。
+目前仓库的 `docker-compose.yml` 和 `deploy/infra.config.json` 包含维护者部署环境的示例值，包括数据库地址和域名；**不是复制 `.env.example` 后就能直接运行的通用一键部署模板**。
 
 部署时至少需要完成以下配置：
 
 1. 准备 PostgreSQL，创建 `auth`、`subscription`、`checker`、`scheduler`、`notify`、`settings` 六个数据库，配置专用数据库账户和访问权限。
 2. 同步修改 Compose 的 migrator 数据库地址与 `deploy/infra.config.json` 中的 SQL 主机、TLS、metadata/base URL；配置 NSQ。运行数据库迁移前先备份现有数据。
-3. 构建或选择与你部署分支对应的后端/前端镜像，替换 Compose 中的镜像名称。不要假设历史镜像已经包含本仓库的新 UI。
+3. 构建或选择与你部署分支对应的后端/前端镜像。Compose 默认使用 `ghcr.io/asharca/nodeplane` 和 `ghcr.io/asharca/nodeplane-frontend`；确认对应版本已成功发布。通过 `NODEPLANE_IMAGE_PREFIX` 指定其他仓库前缀，使用 `SUBS_CHECK_IMAGE_TAG` 同时固定两个服务的版本。
 4. 配置随机的 `JWT_SECRET`、`DB_USER`、`DB_PASSWORD`，并将 `REGISTER_INVITE_CODE` 明确传入 backend 容器。确认前端 `ENCORE_URL` 指向 backend 服务。
 5. 在反向代理上启用 HTTPS，妥善保管订阅、代理和导出密钥。验证 SSE 长连接、数据库连接、导出及通知后再对外开放。
+
+镜像仓库路径必须为小写；工作流通过 `.github/scripts/image-metadata.sh` 统一处理 owner/repository，发布标签保留原大小写。`main` 发布完整提交 SHA 与 `latest`，版本标签发布完整 SHA 与对应版本标签。PR 仅构建、检查容器，不登录 GHCR、不推镜像、不触发 Coolify。工作流成功触发 Coolify 不等于线上健康检查通过；仍需检查实际部署状态。
+
+已有 Coolify 应用若使用独立维护的 Compose 或固定镜像地址，也需要同步镜像前缀。需要暂时继续使用历史仓库时，可设置 `NODEPLANE_IMAGE_PREFIX=ghcr.io/renhedata/subs-check-re`；这不会把新代码发布到历史仓库。
 
 示例构建命令：
 
