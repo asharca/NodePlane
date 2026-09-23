@@ -23,9 +23,10 @@ services:
       start_period: 10s
 
   backend:
-    # Defaults to the newest published image. Set SUBS_CHECK_IMAGE_TAG to pin
-    # both application services to a release tag for rollback/reproducibility.
-    image: ghcr.io/renhedata/subs-check-re:${SUBS_CHECK_IMAGE_TAG:-latest}
+    # Match this repository's lowercase GHCR image names. Forks or existing
+    # deployments can override NODEPLANE_IMAGE_PREFIX. Pin both services with
+    # SUBS_CHECK_IMAGE_TAG for rollback/reproducibility.
+    image: ${NODEPLANE_IMAGE_PREFIX:-ghcr.io/asharca/nodeplane}:${SUBS_CHECK_IMAGE_TAG:-latest}
     pull_policy: always
     environment:
       DB_USER: ${DB_USER}
@@ -42,7 +43,7 @@ services:
     restart: on-failure:5
 
   frontend:
-    image: ghcr.io/renhedata/subs-check-re-frontend:${SUBS_CHECK_IMAGE_TAG:-latest}
+    image: ${NODEPLANE_IMAGE_PREFIX:-ghcr.io/asharca/nodeplane}-frontend:${SUBS_CHECK_IMAGE_TAG:-latest}
     pull_policy: always
     environment:
       ENCORE_URL: http://backend:8080
