@@ -512,33 +512,36 @@ class FunctionalAPI(unittest.TestCase):
 
     def test_real_cron_trigger_and_automatic_completion_notification(self):
         self.configure()
+        for rule in self.api("GET", "/platform-rules")["rules"]:
+            self.api("PUT", f'/platform-rules/{rule["id"]}', {**rule, "enabled": False})
+        self.rule("scheduled_local")
         group = self.group(name="Automatic fixture")
-        self.api("POST", "/notify/channels", {"name": "Automatic report", "type": "webhook", "config": {"url": FIXTURE + "/hook", "headers": {"X-NodePlane-Test": self.uid}}, "on_check_complete": True})
+        self.api("POST", "/notify/channels", {"name": "Automatic completion", "type": "webhook", "config": {"url": FIXTURE + "/hook", "headers": {"X-NodePlane-Test": self.uid + "-check"}}, "on_check_complete": True})
+        unlock = self.api("POST", "/notify/channels", {"name": "Automatic unlock", "type": "webhook", "config": {"url": FIXTURE + "/hook", "headers": {"X-NodePlane-Test": self.uid + "-unlock"}}, "unlock_cron": "* * * * *"})
         schedule = self.api("POST", "/scheduler", {"subscription_id": group["id"], "cron_expr": "* * * * *", "options": {"speed_test": False, "upload_speed_test": False, "media_apps": []}})
         try:
             deadline = time.monotonic() + 85
             completed = None
+            check_event = unlock_event = None
             while time.monotonic() < deadline:
                 jobs = self.api("GET", f'/check/{group["id"]}/jobs')["jobs"]
                 completed = next((job for job in jobs if job["status"] == "completed"), None)
-                if completed:
+                _, events = http("GET", "/events", origin=FIXTURE)
+                check_event = next((e for e in events["events"] if e["type"] == "webhook" and e.get("test_header") == self.uid + "-check"), None)
+                unlock_event = next((e for e in events["events"] if e["type"] == "webhook" and e.get("test_header") == self.uid + "-unlock"), None)
+                if completed and check_event and unlock_event:
                     break
                 time.sleep(0.25)
-            self.assertIsNotNone(completed, "The real Cron callback did not complete a check")
+            self.assertIsNotNone(completed, "Real Cron callback did not complete a check")
             self.assertEqual(completed["available"], 2)
             self.assertEqual(len(self.nodes(group)), 2)
-            deadline = time.monotonic() + 10
-            delivered = False
-            while time.monotonic() < deadline:
-                _, events = http("GET", "/events", origin=FIXTURE)
-                delivered = any(e["type"] == "webhook" and e.get("test_header") == self.uid for e in events["events"])
-                if delivered:
-                    break
-                time.sleep(0.1)
-            self.assertTrue(delivered, "Check completion did not reach the automatic notification subscriber")
+            self.assertIsNotNone(check_event, "Completion event did not reach its notification subscriber")
+            self.assertIsNotNone(unlock_event, "Scheduled unlock report did not run without browser auth")
+            self.assertEqual(unlock_event["payload"]["Platforms"], {"scheduled_local": True})
+            self.assertEqual(unlock_event["payload"]["IP"], "192.0.2.10")
         finally:
             self.api("DELETE", f'/scheduler/{schedule["id"]}')
-
+            self.api("DELETE", f'/notify/channels/{unlock["id"]}')
 
 
 if __name__ == "__main__":

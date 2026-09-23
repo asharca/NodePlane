@@ -161,7 +161,7 @@ func handleJobCompleted(ctx context.Context, event *checkersvc.JobCompletedEvent
 // --- Unlock report (scheduled by per-channel cron) ---
 
 func sendUnlockReport(ctx context.Context, userID, chType string, configJSON []byte) {
-	result, err := checkersvc.GetLocalUnlock(ctx)
+	result, err := checkersvc.GetLocalUnlockForUser(ctx, userID)
 	if err != nil {
 		rlog.Error("unlock report: failed to get local unlock status", "user_id", userID, "err", err)
 		return
