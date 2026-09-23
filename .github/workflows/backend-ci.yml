@@ -2,9 +2,6 @@ name: Backend CI
 on:
   pull_request:
     paths: ['services/**', 'go.mod', 'go.sum', 'tests/**', '.github/workflows/backend-ci.yml']
-  push:
-    branches: ['codex/nodeplane-asharca-ui']
-    paths: ['services/**', 'go.mod', 'go.sum', 'tests/**', '.github/workflows/backend-ci.yml']
 permissions:
   contents: read
 concurrency:
@@ -36,6 +33,26 @@ jobs:
         run: |
           set -o pipefail
           encore test -v -count=1 ./... 2>&1 | tee test-results/backend/go-test.log
+      - name: Real API and persistence workflows
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          NODEPLANE_E2E_DISPOSABLE: '1'
+        run: |
+          set -euo pipefail
+          python3 tests/fixtures/server.py > test-results/backend/fixtures.log 2>&1 &
+          FIXTURE_PID=$!
+          HTTP_PROXY=http://127.0.0.1:18081 HTTPS_PROXY=http://127.0.0.1:18081 NO_PROXY=localhost,127.0.0.1,::1 encore run --port 4000 > test-results/backend/server.log 2>&1 &
+          BACKEND_PID=$!
+          trap 'kill "$BACKEND_PID" "$FIXTURE_PID" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 120); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/auth/me || true)" = '401' ]; then ready=true; break; fi
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then cat test-results/backend/server.log; exit 1; fi
+            sleep 2
+          done
+          if [ "$ready" != 'true' ]; then cat test-results/backend/server.log; exit 1; fi
+          python3 tests/functional_api.py 2>&1 | tee test-results/backend/functional-api.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
