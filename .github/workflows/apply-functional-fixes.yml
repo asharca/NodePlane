@@ -1,0 +1,56 @@
+name: Apply functional fixes and screenshots
+on:
+  push:
+    branches: ['codex/nodeplane-asharca-ui']
+    paths: ['.github/workflows/apply-functional-fixes.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/codex/nodeplane-asharca-ui'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/nodeplane-asharca-ui
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - name: Apply guarded source edits
+        run: |
+          python3 tests/apply-functional-fixes.py
+          gofmt -w services/scheduler/scheduler.go services/settings/settings.go services/notify/notify.go services/checker/rules.go services/checker/rule_eval.go
+      - name: Validate and capture browser screenshots
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          git diff --name-only -- '*.tsx' '*.ts' | sed 's|^frontend/||' | xargs -r bunx biome format --write
+          bun run check-types
+          bun run test:unit
+          bun run build
+          npm install --prefix "$PLAYWRIGHT_RUNTIME" --no-package-lock --ignore-scripts playwright@1.55.0
+          "$PLAYWRIGHT_RUNTIME/node_modules/.bin/playwright" install --with-deps chromium
+          PORT=3000 HOST=127.0.0.1 node .output/server/index.mjs > "$RUNNER_TEMP/preview.log" 2>&1 &
+          PID=$!
+          trap 'kill "$PID" 2>/dev/null || true' EXIT
+          for n in $(seq 1 45); do curl -fsS http://127.0.0.1:3000/login > /dev/null && break; sleep 1; done
+          node scripts/ui-smoke.mjs
+          mkdir -p ../docs/screenshots
+          for image in workspace-light workspace-dark login-light workspace-mobile create-group-dialog settings-small-mobile; do
+            cp "test-results/ui/$image.png" "../docs/screenshots/$image.png"
+          done
+      - name: Commit only requested source and screenshot changes
+        run: |
+          rm tests/apply-functional-fixes.py .github/workflows/apply-functional-fixes.yml .github/workflows/test-source-snapshot.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add frontend/src services/checker/rule_eval.go services/checker/rules.go services/notify/notify.go services/scheduler/scheduler.go services/settings/settings.go docs/screenshots tests/apply-functional-fixes.py .github/workflows/apply-functional-fixes.yml .github/workflows/test-source-snapshot.yml
+          git commit -m 'fix: preserve persisted identities, partial updates, node ownership and form semantics'
+          git push origin HEAD:codex/nodeplane-asharca-ui
