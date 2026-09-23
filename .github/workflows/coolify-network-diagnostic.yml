@@ -1,0 +1,70 @@
+name: Coolify network diagnostic (read-only)
+
+on:
+  push:
+    branches: ['diagnostics/coolify-connectivity']
+    paths: ['.github/workflows/coolify-network-diagnostic.yml']
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  connectivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # Deliberately no checkout, secrets, registry access or deployment API.
+      # Probe only the public hostname already present in deployment logs.
+      - name: Probe DNS and public HTTPS entry point
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import concurrent.futures
+          import json
+          import os
+          import socket
+          import subprocess
+          from pathlib import Path
+
+          host = 'coolify.rhzy.ai'
+          report = {'host': host, 'scope': 'read-only public root; no webhook, token or deployment request', 'resolved': [], 'dns': [], 'https': []}
+          try:
+              report['resolved'] = sorted({('IPv6' if family == socket.AF_INET6 else 'IPv4', addr[0]) for family, _, _, _, addr in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)})
+          except OSError as error:
+              report['resolver_error'] = str(error)
+
+          def dns_probe(item):
+              resolver, record = item
+              args = ['dig', '+time=3', '+tries=1', '+noall', '+answer', '+comments']
+              if resolver != 'system':
+                  args.append('@' + resolver)
+              result = subprocess.run(args + [host, record], capture_output=True, text=True, timeout=6)
+              return {'resolver': resolver, 'type': record, 'exit': result.returncode, 'answer': result.stdout.strip(), 'error': result.stderr.strip()}
+
+          def https_probe(item):
+              name, flags, url = item
+              args = ['curl', '--silent', '--show-error', '--head', '--output', '/dev/null', '--connect-timeout', '15', '--max-time', '20', '--write-out', '%{json}']
+              result = subprocess.run(args + flags + [url], capture_output=True, text=True, timeout=25)
+              try:
+                  raw = json.loads(result.stdout)
+                  metrics = {key: raw.get(key) for key in ['http_code', 'remote_ip', 'remote_port', 'time_namelookup', 'time_connect', 'time_appconnect', 'time_starttransfer', 'time_total', 'ssl_verify_result']}
+              except ValueError:
+                  metrics = {'raw': result.stdout}
+              return {'probe': name, 'exit': result.returncode, 'metrics': metrics, 'error': result.stderr.strip()}
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+              report['dns'] = list(pool.map(dns_probe, [(resolver, record) for resolver in ['system', '1.1.1.1', '8.8.8.8'] for record in ['A', 'AAAA']]))
+          with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+              report['https'] = list(pool.map(https_probe, [
+                  ('Coolify default', [], 'https://' + host + '/'),
+                  ('Coolify IPv4', ['-4'], 'https://' + host + '/'),
+                  ('Coolify IPv6', ['-6'], 'https://' + host + '/'),
+                  ('GitHub outbound control', [], 'https://github.com/'),
+              ]))
+          report['entry_reachable'] = any(item['exit'] == 0 and item['metrics'].get('http_code', 0) > 0 for item in report['https'] if item['probe'].startswith('Coolify'))
+          text = json.dumps(report, indent=2, ensure_ascii=False)
+          print(text, flush=True)
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text('# Coolify connectivity diagnostic\n\nOnly the public root was probed; HTTP reachability does not prove webhook authorization or deployment health.\n\n```json\n' + text + '\n```\n')
+          if not report['entry_reachable']:
+              raise SystemExit('Coolify HTTPS entry point is unreachable from this hosted runner; see DNS and connection timings above.')
+          PY
