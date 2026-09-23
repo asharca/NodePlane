@@ -17,12 +17,58 @@ jobs:
       - name: Apply guarded edits and check test syntax
         run: |
           python3 tests/repair-functional-round2.py
+          # Workflow edits use the connector separately, not the job token.
+          git restore .github/workflows/backend-ci.yml
           python3 - <<'PY'
           from pathlib import Path
           p = Path('frontend/src/queries/subscriptions.test.ts')
           s = p.read_text()
           s = s.replace('params: { kind:', 'params: { name: "Fixture", url: "", cron_expr: "", export_include_dead: false, export_sort: "speed_desc", kind:')
           s = s.replace('url: "", cron_expr: "", export_include_dead: false, export_sort: "speed_desc", kind: "subscription", url:', 'cron_expr: "", export_include_dead: false, export_sort: "speed_desc", kind: "subscription", url:')
+          p.write_text(s)
+          p = Path('tests/functional_api.py')
+          s = p.read_text()
+          extra = '''    def test_real_cron_trigger_and_automatic_completion_notification(self):
+                  self.configure()
+                  group = self.group(name="Automatic fixture")
+                  self.api("POST", "/notify/channels", {"name": "Automatic report", "type": "webhook", "config": {"url": FIXTURE + "/hook", "headers": {"X-NodePlane-Test": self.uid}}, "on_check_complete": True})
+                  schedule = self.api("POST", "/scheduler", {"subscription_id": group["id"], "cron_expr": "* * * * *", "options": {"speed_test": False, "upload_speed_test": False, "media_apps": []}})
+                  try:
+                      deadline = time.monotonic() + 85
+                      completed = None
+                      while time.monotonic() < deadline:
+                          jobs = self.api("GET", f'/check/{group["id"]}/jobs')["jobs"]
+                          completed = next((job for job in jobs if job["status"] == "completed"), None)
+                          if completed:
+                              break
+                          time.sleep(0.25)
+                      self.assertIsNotNone(completed, "The real Cron callback did not complete a check")
+                      self.assertEqual(completed["available"], 2)
+                      self.assertEqual(len(self.nodes(group)), 2)
+                      deadline = time.monotonic() + 10
+                      delivered = False
+                      while time.monotonic() < deadline:
+                          _, events = http("GET", "/events", origin=FIXTURE)
+                          delivered = any(e["type"] == "webhook" and e.get("test_header") == self.uid for e in events["events"])
+                          if delivered:
+                              break
+                          time.sleep(0.1)
+                      self.assertTrue(delivered, "Check completion did not reach the automatic notification subscriber")
+                  finally:
+                      self.api("DELETE", f'/scheduler/{schedule["id"]}')
+          
+          
+          '''
+          # Dedent the method body into the class's normal indentation.
+          extra = extra.replace('\n        ', '\n', 0) if False else extra
+          import textwrap
+          lines = extra.splitlines()
+          extra = lines[0] + '\n' + textwrap.dedent('\n'.join(lines[1:])).replace('\n', '\n        ')
+          extra = lines[0] + '\n' + '\n'.join('        ' + line if line else '' for line in textwrap.dedent('\n'.join(lines[1:])).splitlines()) + '\n\n\n'
+          assert 'if __name__ == "__main__":' in s
+          p.write_text(s.replace('if __name__ == "__main__":', extra + 'if __name__ == "__main__":'))
+          p = Path('docs/testing.md')
+          s = p.read_text().replace('定时任务测试覆盖创建/更新/启停/删除和现有调度单元回归，不用等待日历跨天来证明长期定时可靠性。', '定时任务还会等待一次真实的分钟级 Cron 触发，验证自动抓取、检测、持久化以及完成事件触发 Webhook；这不等于长期定时可靠性验证。')
           p.write_text(s)
           PY
           gofmt -w services/checker/rule_eval.go
@@ -33,5 +79,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -u
-          git commit -m 'fix: roll back failed node imports and reject invalid test-node ids'
+          git commit -m 'fix: roll back failed imports and verify real scheduled execution'
           git push origin HEAD:codex/nodeplane-asharca-ui
