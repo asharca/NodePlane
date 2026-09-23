@@ -8,7 +8,7 @@ if ! command -v migrate > /dev/null 2>&1; then
         | tar xz -C /usr/local/bin migrate
 fi
 
-DB_HOST="${DB_HOST:-10.0.10.114:5432}"
+DB_HOST="${DB_HOST:-host.docker.internal:5432}"
 DB_USER="${DB_USER}"
 DB_PASSWORD="${DB_PASSWORD}"
 

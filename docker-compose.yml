@@ -3,7 +3,7 @@ services:
     image: alpine:3.19
     command: ["sh", "/deploy/migrate.sh"]
     environment:
-      DB_HOST: 10.0.10.114:5432
+      DB_HOST: host.docker.internal:5432
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
     volumes:
@@ -35,6 +35,8 @@ services:
       BASE_URL: ${BASE_URL}
     volumes:
       - ./deploy/infra.config.json:/etc/encore/infra-config.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       migrator:
         condition: service_completed_successfully

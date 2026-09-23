@@ -5,11 +5,11 @@
     "env_name": "production",
     "env_type": "production",
     "cloud": "local",
-    "base_url": "https://sub.rhzy.ai/api"
+    "base_url": "https://np.rhzy.ai/api"
   },
   "sql_servers": [
     {
-      "host": "10.0.10.114:5432",
+      "host": "host.docker.internal:5432",
       "tls_config": { "disabled": true },
       "databases": {
         "auth": {
