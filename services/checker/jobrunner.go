@@ -4,6 +4,7 @@ package checker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"runtime/debug"
 	"strconv"
 	"sync"
@@ -90,7 +91,7 @@ func (r *jobRunner) run(parentCtx context.Context, jobID, subscriptionID, userID
 
 	// An explicit node selection scopes the run to those nodes and never
 	// re-fetches; only a whole-subscription run with no nodes yet bootstraps.
-	partial := len(cfg.NodeIDs) > 0
+	partial := len(cfg.NodeIDs) > 0 && !cfg.ManualNodes
 	if partial {
 		existing = filterNodesByIDs(existing, cfg.NodeIDs)
 	}
@@ -109,6 +110,10 @@ func (r *jobRunner) run(parentCtx context.Context, jobID, subscriptionID, userID
 			return
 		}
 	} else {
+		if len(existing) == 0 && cfg.ManualNodes {
+			fail("load nodes", fmt.Errorf("node group %s has no nodes", subscriptionID))
+			return
+		}
 		proxies = make([]map[string]any, len(existing))
 		nodeIDs = make([]string, len(existing))
 		for i, n := range existing {

@@ -52,33 +52,33 @@ type TriggerResponse struct {
 
 // Job represents a check job.
 type Job struct {
-	ID             string     `json:"id"`
-	SubscriptionID string     `json:"subscription_id"`
-	Status         string     `json:"status"`
-	Total          int        `json:"total"`
-	Progress       int        `json:"progress"`
-	CreatedAt      time.Time  `json:"created_at"`
+	ID                string     `json:"id"`
+	SubscriptionID    string     `json:"subscription_id"`
+	Status            string     `json:"status"`
+	Total             int        `json:"total"`
+	Progress          int        `json:"progress"`
+	CreatedAt         time.Time  `json:"created_at"`
 	FinishedAt        *time.Time `json:"finished_at,omitempty"`
 	TotalTrafficBytes int64      `json:"total_traffic_bytes"`
 }
 
 // NodeResult represents a single node's check result for the API response.
 type NodeResult struct {
-	NodeID          string `json:"node_id"`
-	NodeName        string `json:"node_name"`
-	NodeType        string `json:"node_type"`
-	Enabled         bool   `json:"enabled"`
-	Alive           bool   `json:"alive"`
-	LatencyMs       int    `json:"latency_ms"`
-	SpeedKbps       int    `json:"speed_kbps"`
-	UploadSpeedKbps int    `json:"upload_speed_kbps"`
-	Country         string `json:"country"`
-	IP              string `json:"ip"`
-	Server          string `json:"server"`
-	Port            int    `json:"port"`
-	Config          string `json:"config"`
-	Platforms    map[string]PlatformOutcome `json:"platforms"`
-	TrafficBytes int64                      `json:"traffic_bytes"`
+	NodeID          string                     `json:"node_id"`
+	NodeName        string                     `json:"node_name"`
+	NodeType        string                     `json:"node_type"`
+	Enabled         bool                       `json:"enabled"`
+	Alive           bool                       `json:"alive"`
+	LatencyMs       int                        `json:"latency_ms"`
+	SpeedKbps       int                        `json:"speed_kbps"`
+	UploadSpeedKbps int                        `json:"upload_speed_kbps"`
+	Country         string                     `json:"country"`
+	IP              string                     `json:"ip"`
+	Server          string                     `json:"server"`
+	Port            int                        `json:"port"`
+	Config          string                     `json:"config"`
+	Platforms       map[string]PlatformOutcome `json:"platforms"`
+	TrafficBytes    int64                      `json:"traffic_bytes"`
 }
 
 // ResultsResponse is returned by GET /check/:subscriptionID/results.
@@ -89,14 +89,14 @@ type ResultsResponse struct {
 
 // JobSummary is one entry in the job history list.
 type JobSummary struct {
-	ID             string     `json:"id"`
-	SubscriptionID string     `json:"subscription_id"`
-	Status         string     `json:"status"`
-	Total          int        `json:"total"`
-	Available      int        `json:"available"`
-	SpeedTest      bool       `json:"speed_test"`
-	MediaApps      []string   `json:"media_apps"`
-	CreatedAt      time.Time  `json:"created_at"`
+	ID                string     `json:"id"`
+	SubscriptionID    string     `json:"subscription_id"`
+	Status            string     `json:"status"`
+	Total             int        `json:"total"`
+	Available         int        `json:"available"`
+	SpeedTest         bool       `json:"speed_test"`
+	MediaApps         []string   `json:"media_apps"`
+	CreatedAt         time.Time  `json:"created_at"`
 	FinishedAt        *time.Time `json:"finished_at,omitempty"`
 	TotalTrafficBytes int64      `json:"total_traffic_bytes"`
 }
@@ -302,19 +302,17 @@ func TriggerCheck(ctx context.Context, subscriptionID string, p *TriggerParams) 
 			opts.Debug = *p.Debug
 		}
 	}
-	optsJSON, _ := json.Marshal(opts)
-
 	var nodeIDsArg any
 	if p != nil && len(p.NodeIDs) > 0 {
 		b, _ := json.Marshal(p.NodeIDs)
 		nodeIDsArg = string(b)
 	}
+	if sub.Kind == subsvc.KindNode {
+		nodeIDsArg = `[]`
+	}
 
-	jobID := uuid.New().String()
-	if _, err := db.Exec(ctx, `
-		INSERT INTO check_jobs (id, subscription_id, user_id, sub_url, speed_test_url, latency_test_url, options_json, status, created_at, node_ids)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $9::jsonb)
-	`, jobID, subscriptionID, claims.UserID, sub.URL, speedTestURL, latencyTestURL, optsJSON, time.Now(), nodeIDsArg); err != nil {
+	jobID, err := triggerCheckJob(ctx, subscriptionID, claims.UserID, sub.URL, speedTestURL, latencyTestURL, opts, nodeIDsArg)
+	if err != nil {
 		if isActiveJobConflict(err) {
 			return nil, errs.B().Code(errs.FailedPrecondition).Msg("a check is already running for this subscription").Err()
 		}
@@ -325,6 +323,21 @@ func TriggerCheck(ctx context.Context, subscriptionID string, p *TriggerParams) 
 	go runJob(context.Background(), jobID, subscriptionID, claims.UserID)
 
 	return &TriggerResponse{JobID: jobID}, nil
+}
+
+func triggerCheckJob(ctx context.Context, subscriptionID, userID, subURL, speedTestURL, latencyTestURL string, opts CheckOptions, nodeIDsArg any) (string, error) {
+	optsJSON, err := json.Marshal(opts)
+	if err != nil {
+		return "", err
+	}
+	jobID := uuid.New().String()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO check_jobs (id, subscription_id, user_id, sub_url, speed_test_url, latency_test_url, options_json, status, created_at, node_ids)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8, $9::jsonb)
+	`, jobID, subscriptionID, userID, subURL, speedTestURL, latencyTestURL, optsJSON, time.Now(), nodeIDsArg); err != nil {
+		return "", err
+	}
+	return jobID, nil
 }
 
 // GetProgress streams real-time check progress via SSE.

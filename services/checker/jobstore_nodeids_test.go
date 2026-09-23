@@ -48,3 +48,26 @@ func TestLoadConfigReadsNodeIDs(t *testing.T) {
 		t.Fatalf("expected no node_ids, got %v", cfgAll.NodeIDs)
 	}
 }
+
+func TestLoadConfigAllowsURLlessNodeGroup(t *testing.T) {
+	ctx := context.Background()
+	subID := "manual-node-group-" + uuid.New().String()
+	jobID := uuid.New().String()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO check_jobs (id, subscription_id, user_id, sub_url, options_json, status, created_at)
+		VALUES ($1, $2, $3, '', '{}', 'queued', $4)
+	`, jobID, subID, uuid.New().String(), time.Now()); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE check_jobs SET node_ids='[]'::jsonb WHERE id=$1`, jobID); err != nil {
+		t.Fatalf("mark manual-node job: %v", err)
+	}
+
+	cfg, err := defaultJobStore.loadConfig(ctx, jobID)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if !cfg.ManualNodes || cfg.SubURL != "" {
+		t.Fatalf("expected URL-less manual node group config, got %+v", cfg)
+	}
+}

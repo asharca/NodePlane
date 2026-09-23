@@ -25,6 +25,11 @@ type jobConfig struct {
 	LatencyTestURL string
 	Options        CheckOptions
 	NodeIDs        []string
+	ManualNodes    bool
+}
+
+func isManualNodeJob(nodeIDsJSON string) bool {
+	return nodeIDsJSON == `[]`
 }
 
 func (s *jobStore) loadConfig(ctx context.Context, jobID string) (*jobConfig, error) {
@@ -32,13 +37,14 @@ func (s *jobStore) loadConfig(ctx context.Context, jobID string) (*jobConfig, er
 	var optsJSON []byte
 	var nodeIDsJSON string
 	if err := db.QueryRow(ctx,
-		`SELECT sub_url, COALESCE(speed_test_url, ''), COALESCE(latency_test_url, ''),
-		        COALESCE(options_json, '{}'), COALESCE(node_ids::text, '')
-		 FROM check_jobs WHERE id=$1`,
+		`SELECT cj.sub_url, COALESCE(cj.speed_test_url, ''), COALESCE(cj.latency_test_url, ''),
+		        COALESCE(cj.options_json, '{}'), COALESCE(cj.node_ids::text, '')
+		 FROM check_jobs cj WHERE cj.id=$1`,
 		jobID).Scan(&cfg.SubURL, &cfg.SpeedTestURL, &cfg.LatencyTestURL, &optsJSON, &nodeIDsJSON); err != nil {
 		return nil, fmt.Errorf("load job config: %w", err)
 	}
-	if cfg.SubURL == "" {
+	cfg.ManualNodes = isManualNodeJob(nodeIDsJSON)
+	if cfg.SubURL == "" && !cfg.ManualNodes {
 		return nil, fmt.Errorf("job %s has no subscription URL", jobID)
 	}
 	if cfg.SpeedTestURL == "" {
@@ -49,6 +55,9 @@ func (s *jobStore) loadConfig(ctx context.Context, jobID string) (*jobConfig, er
 	}
 	if nodeIDsJSON != "" {
 		_ = json.Unmarshal([]byte(nodeIDsJSON), &cfg.NodeIDs)
+	}
+	if cfg.ManualNodes {
+		cfg.NodeIDs = nil
 	}
 	return &cfg, nil
 }

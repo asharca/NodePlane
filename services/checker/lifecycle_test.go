@@ -47,6 +47,40 @@ func TestJobRunnerChecksExistingNodesWithoutFetch(t *testing.T) {
 	}
 }
 
+func TestJobRunnerChecksURLlessManualNodeGroup(t *testing.T) {
+	ctx := context.Background()
+	subID := "manual-node-group-" + uuid.New().String()
+	userID := uuid.New().String()
+	if _, err := defaultJobStore.replaceNodes(ctx, subID, runnerProxies()[:1]); err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+
+	jobID := uuid.New().String()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO check_jobs (id, subscription_id, user_id, sub_url, options_json, status, created_at, node_ids)
+		VALUES ($1, $2, $3, '', '{"speed_test":false,"media_apps":[]}', 'queued', NOW(), '[]')
+	`, jobID, subID, userID); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+
+	f := &failIfCalledFetcher{}
+	r := &jobRunner{
+		store:   defaultJobStore,
+		fetcher: f,
+		bus:     newInProcessJobBus(),
+		check:   aliveCheck,
+	}
+	r.run(ctx, jobID, subID, userID)
+
+	if f.called.Load() {
+		t.Error("checking a manual node group must not fetch a URL")
+	}
+	status, available, total := jobState(t, jobID)
+	if status != "completed" || total != 1 || available != 1 {
+		t.Errorf("want completed/1/1, got %s/%d/%d", status, available, total)
+	}
+}
+
 // Manual import parses pasted content and becomes the subscription's node list.
 func TestImportNodesPopulatesNodes(t *testing.T) {
 	subID := "import-sub-" + uuid.New().String()

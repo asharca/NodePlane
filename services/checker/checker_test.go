@@ -3,6 +3,7 @@ package checker
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,31 @@ func TestTriggerCheckMissingSubscription(t *testing.T) {
 	_, err := TriggerCheck(ctx, "nonexistent-sub-id", nil)
 	if err == nil {
 		t.Error("expected error for missing subscription")
+	}
+}
+
+func TestTriggerCheckJobMarksURLlessNodeGroup(t *testing.T) {
+	userID := "manual-check-user-" + uuid.New().String()
+	subID := "manual-check-sub-" + uuid.New().String()
+	jobID, err := triggerCheckJob(context.Background(), subID, userID, "", "", "", defaultCheckOptions(), ` [] `)
+	if err != nil {
+		t.Fatalf("create check job: %v", err)
+	}
+
+	var nodeIDsJSON string
+	var subURL string
+	if err := db.QueryRow(context.Background(), `
+		SELECT COALESCE(sub_url, ''), COALESCE(node_ids::text, '') FROM check_jobs WHERE id=$1
+	`, jobID).Scan(&subURL, &nodeIDsJSON); err != nil {
+		t.Fatalf("read check job: %v", err)
+	}
+	if subURL != "" || !isManualNodeJob(nodeIDsJSON) {
+		t.Fatalf("expected URL-less manual-node marker, got url=%q node_ids=%q", subURL, nodeIDsJSON)
+	}
+
+	var decoded []string
+	if err := json.Unmarshal([]byte(nodeIDsJSON), &decoded); err != nil || len(decoded) != 0 {
+		t.Fatalf("invalid marker JSON %q: %v", nodeIDsJSON, err)
 	}
 }
 
