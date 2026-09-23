@@ -13,6 +13,7 @@ import (
 	"encore.dev/beta/errs"
 
 	authsvc "subs-check-re/services/auth"
+	subsvc "subs-check-re/services/subscription"
 )
 
 // builtinKeys are platform keys treated as first-class builtins; controls
@@ -110,15 +111,15 @@ type TestRuleParams struct {
 
 // TestRuleResult is returned by POST /platform-rules/test.
 type TestRuleResult struct {
-	OK              bool        `json:"ok"`
-	Error           string      `json:"error,omitempty"`
-	StatusCode      int         `json:"status_code,omitempty"`
-	FinalURL        string      `json:"final_url,omitempty"`
-	Body            string      `json:"body,omitempty"`
+	OK              bool              `json:"ok"`
+	Error           string            `json:"error,omitempty"`
+	StatusCode      int               `json:"status_code,omitempty"`
+	FinalURL        string            `json:"final_url,omitempty"`
+	Body            string            `json:"body,omitempty"`
 	ResponseHeaders map[string]string `json:"response_headers,omitempty"`
-	NodeName        string      `json:"node_name,omitempty"`
-	DurationMs      int64       `json:"duration_ms,omitempty"`
-	Trace           *DebugTrace `json:"trace,omitempty"`
+	NodeName        string            `json:"node_name,omitempty"`
+	DurationMs      int64             `json:"duration_ms,omitempty"`
+	Trace           *DebugTrace       `json:"trace,omitempty"`
 }
 
 // NodeSummary is a minimal proxy node entry for the test node picker.
@@ -348,31 +349,36 @@ func TestRule(ctx context.Context, p *TestRuleParams) (*TestRuleResult, error) {
 //
 //encore:api auth method=GET path=/platform-rules/test-nodes
 func ListTestNodes(ctx context.Context) (*ListTestNodesResponse, error) {
-	claims := encauth.Data().(*authsvc.UserClaims)
-
-	rows, err := db.Query(ctx, `
-		SELECT DISTINCT ON (n.name) n.id, n.name, COALESCE(n.type, ''), COALESCE(n.config::text, '')
-		FROM nodes n
-		WHERE n.subscription_id IN (
-		    SELECT DISTINCT subscription_id FROM check_jobs WHERE user_id = $1
-		)
-		ORDER BY n.name
-		LIMIT 500
-	`, claims.UserID)
+	owned, err := subsvc.List(ctx)
 	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(owned.Subscriptions))
+	for _, sub := range owned.Subscriptions {
+		ids = append(ids, sub.ID)
+	}
+	if len(ids) == 0 {
 		return &ListTestNodesResponse{Nodes: []*NodeSummary{}}, nil
 	}
+	rows, err := db.Query(ctx, `
+		SELECT n.id, n.name, COALESCE(n.type, ''), COALESCE(n.config::text, '')
+		FROM nodes n WHERE n.subscription_id = ANY($1::text[])
+		ORDER BY n.name, n.id LIMIT 500
+	`, ids)
+	if err != nil {
+		return nil, errs.B().Code(errs.Internal).Msg("failed to list test nodes").Err()
+	}
 	defer rows.Close()
-
-	var nodes []*NodeSummary
+	nodes := []*NodeSummary{}
 	for rows.Next() {
 		var n NodeSummary
-		if err := rows.Scan(&n.ID, &n.Name, &n.Type, &n.Config); err == nil {
-			nodes = append(nodes, &n)
+		if err := rows.Scan(&n.ID, &n.Name, &n.Type, &n.Config); err != nil {
+			return nil, errs.B().Code(errs.Internal).Msg("failed to read test node").Err()
 		}
+		nodes = append(nodes, &n)
 	}
-	if nodes == nil {
-		nodes = []*NodeSummary{}
+	if err := rows.Err(); err != nil {
+		return nil, errs.B().Code(errs.Internal).Msg("failed to list test nodes").Err()
 	}
 	return &ListTestNodesResponse{Nodes: nodes}, nil
 }

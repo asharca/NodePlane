@@ -119,16 +119,16 @@ export function ScheduleDialog({
 							onValueChange={(v) => v && setSubId(v)}
 							disabled={!!editing}
 						>
-							<SelectTrigger className="w-full">
+							<SelectTrigger aria-label="Node group" className="w-full">
 								<SelectValue placeholder="Choose a node group…" />
 							</SelectTrigger>
 							<SelectContent>
 								{subs
 									.filter((s) => s.kind !== "node")
 									.map((s) => (
-									<SelectItem key={s.id} value={s.id}>
-										{s.name || s.url}
-									</SelectItem>
+										<SelectItem key={s.id} value={s.id}>
+											{s.name || s.url}
+										</SelectItem>
 									))}
 							</SelectContent>
 						</Select>

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FormField as Field } from "@/components/form-field";
 import { Skeleton } from "@/components/ui/skeleton";
 import { isApiError } from "@/lib/client";
 import { useChangePassword, useMe, useUpdateProfile } from "@/queries";
@@ -50,24 +50,6 @@ function Section({
 			<p className="mt-0.5 mb-4 text-muted-foreground text-xs">{description}</p>
 			<div className="space-y-3">{children}</div>
 		</section>
-	);
-}
-
-function Field({
-	label,
-	error,
-	children,
-}: {
-	label: string;
-	error?: string;
-	children: React.ReactNode;
-}) {
-	return (
-		<div className="space-y-1.5">
-			<Label className="text-xs">{label}</Label>
-			{children}
-			{error ? <p className="text-danger text-xs">⚠ {error}</p> : null}
-		</div>
 	);
 }
 

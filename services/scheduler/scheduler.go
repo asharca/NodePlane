@@ -239,11 +239,13 @@ func (s *Service) Create(ctx context.Context, p *CreateParams) (*ScheduledJob, e
 	optsJSON, _ := json.Marshal(opts)
 
 	id := uuid.New().String()
-	if _, err := db.Exec(ctx, `
+	var createdAt time.Time
+	if err := db.QueryRow(ctx, `
 		INSERT INTO scheduled_jobs (id, subscription_id, user_id, sub_url, cron_expr, options_json, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (subscription_id) DO UPDATE SET cron_expr = $5, sub_url = $4, options_json = $6, enabled = true
-	`, id, p.SubscriptionID, claims.UserID, sub.URL, p.CronExpr, optsJSON, time.Now()); err != nil {
+		RETURNING id, created_at
+	`, id, p.SubscriptionID, claims.UserID, sub.URL, p.CronExpr, optsJSON, time.Now()).Scan(&id, &createdAt); err != nil {
 		return nil, errs.B().Code(errs.Internal).Msg("failed to create scheduled job").Err()
 	}
 
@@ -259,6 +261,7 @@ func (s *Service) Create(ctx context.Context, p *CreateParams) (*ScheduledJob, e
 		UploadSpeedTest: opts.UploadSpeedTest,
 		MediaApps:       opts.MediaApps,
 		Debug:           opts.Debug,
+		CreatedAt:       createdAt,
 	}, nil
 }
 
