@@ -5,7 +5,7 @@ on:
       - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
   push:
-    branches: ['codex/nodeplane-asharca-ui']
+    branches: ['main']
     paths:
       - 'frontend/**'
       - '.github/workflows/frontend-ci.yml'
@@ -23,6 +23,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -34,7 +36,9 @@ jobs:
       - name: Typecheck
         run: bun run check-types
       - name: Unit and component tests
-        run: bun run test:unit
+        run: |
+          mkdir -p test-results/unit
+          bunx vitest run --reporter=default --reporter=json --outputFile=test-results/unit/report.json
       - name: Production build
         run: bun run build
       - name: Install isolated browser test runtime
@@ -45,18 +49,21 @@ jobs:
         env:
           PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
         run: |
+          set -euo pipefail
           PORT=3000 HOST=127.0.0.1 node .output/server/index.mjs > "$RUNNER_TEMP/nodeplane-preview.log" 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          ready=false
           for attempt in $(seq 1 45); do
-            curl -fsS http://127.0.0.1:3000/login > /dev/null && break
+            if curl -fsS http://127.0.0.1:3000/login > /dev/null; then ready=true; break; fi
             sleep 1
           done
+          if [ "$ready" != true ]; then cat "$RUNNER_TEMP/nodeplane-preview.log"; exit 1; fi
           node scripts/ui-smoke.mjs
-      - name: Upload UI screenshots and test report
+      - name: Upload UI screenshots and unit test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: nodeplane-ui-preview
-          path: frontend/test-results/ui/
+          path: frontend/test-results/
           retention-days: 14
