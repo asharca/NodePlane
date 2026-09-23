@@ -1,96 +1,90 @@
-import type * as React from "react";
+import type { ComponentProps } from "react";
+import { Card as AsharcaCard } from "@/components/asharca/card";
 import { cn } from "@/lib/utils";
-
 function Card({
 	className,
 	size = "default",
 	...props
-}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+}: ComponentProps<"div"> & { size?: "default" | "sm" }) {
 	return (
-		<div
+		<AsharcaCard
+			{...props}
+			padded={false}
 			data-slot="card"
 			data-size={size}
 			className={cn(
-				"group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card py-4 text-card-foreground text-sm ring-1 ring-foreground/10 has-[>img:first-child]:pt-0 has-data-[slot=card-footer]:pb-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+				"group/card flex flex-col gap-5 overflow-hidden py-5 text-sm data-[size=sm]:gap-3 data-[size=sm]:py-4 has-data-[slot=card-footer]:pb-0",
 				className,
 			)}
-			{...props}
 		/>
 	);
 }
-
-function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+function CardHeader({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
+			{...props}
 			data-slot="card-header"
 			className={cn(
-				"group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] group-data-[size=sm]/card:px-3 [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3",
+				"grid auto-rows-min items-start gap-1.5 px-5 has-data-[slot=card-action]:grid-cols-[1fr_auto] group-data-[size=sm]/card:px-4",
 				className,
 			)}
-			{...props}
 		/>
 	);
 }
-
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+function CardTitle({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
+			{...props}
 			data-slot="card-title"
 			className={cn(
-				"font-medium text-base leading-snug group-data-[size=sm]/card:text-sm",
+				"text-sm font-semibold leading-snug tracking-tight",
 				className,
 			)}
-			{...props}
 		/>
 	);
 }
-
-function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+function CardDescription({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
+			{...props}
 			data-slot="card-description"
-			className={cn("text-muted-foreground text-sm", className)}
-			{...props}
+			className={cn("text-sm leading-6 text-muted-foreground", className)}
 		/>
 	);
 }
-
-function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+function CardAction({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
+			{...props}
 			data-slot="card-action"
 			className={cn(
 				"col-start-2 row-span-2 row-start-1 self-start justify-self-end",
 				className,
 			)}
-			{...props}
 		/>
 	);
 }
-
-function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+function CardContent({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
+			{...props}
 			data-slot="card-content"
-			className={cn("px-4 group-data-[size=sm]/card:px-3", className)}
-			{...props}
+			className={cn("px-5 group-data-[size=sm]/card:px-4", className)}
 		/>
 	);
 }
-
-function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+function CardFooter({ className, ...props }: ComponentProps<"div">) {
 	return (
 		<div
+			{...props}
 			data-slot="card-footer"
 			className={cn(
-				"flex items-center rounded-b-xl border-t bg-muted/50 p-4 group-data-[size=sm]/card:p-3",
+				"flex flex-wrap items-center gap-2 border-t border-border bg-muted/25 px-5 py-4 group-data-[size=sm]/card:px-4",
 				className,
 			)}
-			{...props}
 		/>
 	);
 }
-
 export {
 	Card,
 	CardAction,

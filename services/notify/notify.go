@@ -161,7 +161,7 @@ func handleJobCompleted(ctx context.Context, event *checkersvc.JobCompletedEvent
 // --- Unlock report (scheduled by per-channel cron) ---
 
 func sendUnlockReport(ctx context.Context, userID, chType string, configJSON []byte) {
-	result, err := checkersvc.GetLocalUnlock(ctx)
+	result, err := checkersvc.GetLocalUnlockForUser(ctx, userID)
 	if err != nil {
 		rlog.Error("unlock report: failed to get local unlock status", "user_id", userID, "err", err)
 		return
@@ -289,11 +289,11 @@ func (s *Service) UpdateChannel(ctx context.Context, id string, p *UpdateChannel
 		}
 	}
 
-	updAlerts := p.PlatformAlerts
-	if updAlerts == nil {
-		updAlerts = []string{}
+	// Omission preserves alerts; an explicit empty array clears them.
+	var updAlertsJSON []byte
+	if p.PlatformAlerts != nil {
+		updAlertsJSON, _ = json.Marshal(p.PlatformAlerts)
 	}
-	updAlertsJSON, _ := json.Marshal(updAlerts)
 
 	result, err := db.Exec(ctx, `
 		UPDATE notify_channels
@@ -303,7 +303,7 @@ func (s *Service) UpdateChannel(ctx context.Context, id string, p *UpdateChannel
 			enabled           = COALESCE($5, enabled),
 			on_check_complete = COALESCE($6, on_check_complete),
 			unlock_cron       = COALESCE($7, unlock_cron),
-			platform_alerts   = $8::jsonb
+			platform_alerts   = COALESCE($8::jsonb, platform_alerts)
 		WHERE id=$1 AND user_id=$2
 	`, id, claims.UserID, p.Name, nullableJSON(p.Config), p.Enabled, p.OnCheckComplete, p.UnlockCron, updAlertsJSON)
 	if err != nil {

@@ -95,7 +95,7 @@ export function NodeGroupDialog({
 		setUrlError(null);
 		setNodeError(null);
 		const onError = (e: unknown) =>
-			toast.error(isApiError(e) ? e.message : "Request failed");
+			toast.error(e instanceof Error ? e.message : isApiError(e) ? e.message : "Request failed");
 
 		if (editing && sub) {
 			updateMut.mutate(

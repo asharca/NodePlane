@@ -1,27 +1,26 @@
-import type { LucideIcon } from "lucide-react";
-import type * as React from "react";
-
+import type { ElementType, ReactNode } from "react";
+import { EmptyState as AsharcaEmptyState } from "@/components/asharca/empty-state";
+import { cn } from "@/lib/utils";
 export function EmptyState({
 	icon: Icon,
 	title,
 	description,
 	action,
+	className,
 }: {
-	icon: LucideIcon;
+	icon?: ElementType;
 	title: string;
 	description?: string;
-	action?: React.ReactNode;
+	action?: ReactNode;
+	className?: string;
 }) {
 	return (
-		<div className="flex flex-col items-center justify-center gap-2 px-6 py-14 text-center">
-			<div className="flex size-10 items-center justify-center rounded-full bg-secondary">
-				<Icon className="size-5 text-muted-foreground" strokeWidth={1.5} />
-			</div>
-			<p className="font-medium text-foreground text-sm">{title}</p>
-			{description ? (
-				<p className="max-w-xs text-muted-foreground text-xs">{description}</p>
-			) : null}
-			{action ? <div className="mt-2">{action}</div> : null}
-		</div>
+		<AsharcaEmptyState
+			icon={Icon ? <Icon /> : undefined}
+			title={title}
+			description={description}
+			actions={action}
+			className={cn("m-4 [&>p]:max-w-sm [&>p]:text-sm", className)}
+		/>
 	);
 }

@@ -66,7 +66,7 @@ export function RunCheckButton({
 				onError: (e) => {
 					// 409/412 = a check is already running (manual or scheduled).
 					// Refresh latest-jobs so the workbench effect attaches to it.
-					if (isApiError(e) && (e.status === 409 || e.status === 412)) {
+					if (isApiError(e) && (e.code === "failed_precondition" || e.status === 409 || e.status === 412)) {
 						toast.error("A check is already running for this node group");
 						qc.invalidateQueries({ queryKey: queryKeys.latestJobs() });
 						return;

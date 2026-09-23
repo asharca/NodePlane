@@ -66,6 +66,16 @@ func runJSRule(ctx context.Context, client *http.Client, ruleType string, defRaw
 		})
 	}
 
+	// Goja does not automatically observe context cancellation while running JS.
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-ctx.Done():
+			vm.Interrupt(ctx.Err())
+		case <-finished:
+		}
+	}()
 	val, err := vm.RunString(wrapped)
 	if err != nil {
 		if dr != nil {

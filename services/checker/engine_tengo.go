@@ -12,7 +12,7 @@ import (
 
 // runTengoRule runs a Tengo script rule.
 // Scripts have access to an `http_get` variable (callable) and must assign their result to `output`.
-// Example: output := http_get("https://example.com").status == 200
+// Example: output = http_get("https://example.com").status == 200
 func runTengoRule(ctx context.Context, client *http.Client, defRaw json.RawMessage, dr *DebugRecorder) (bool, error) {
 	var def ScriptDef
 	if err := json.Unmarshal(defRaw, &def); err != nil {
@@ -22,7 +22,7 @@ func runTengoRule(ctx context.Context, client *http.Client, defRaw json.RawMessa
 		return false, err
 	}
 
-	fullCode := "output := false\n" + def.Prelude + "\n" + def.Code
+	fullCode := def.Prelude + "\n" + def.Code
 
 	script := tengo.NewScript([]byte(fullCode))
 	script.SetImports(stdlib.GetModuleMap(stdlib.AllModuleNames()...))
@@ -136,4 +136,3 @@ func errorResult(msg string) *tengo.Map {
 		"error":     &tengo.String{Value: msg},
 	}}
 }
-

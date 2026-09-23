@@ -41,6 +41,8 @@ export function isApiError(
 
 export function handleUnauthorized(err: unknown): boolean {
 	if (isAPIError(err) && err.status === 401) {
+		if (typeof window !== "undefined" && window.location.pathname === "/login")
+			return false;
 		clearToken();
 		if (typeof window !== "undefined") {
 			window.location.href = "/login";

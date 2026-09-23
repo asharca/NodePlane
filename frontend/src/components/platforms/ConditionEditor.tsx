@@ -1,3 +1,5 @@
+import { FormField as FL } from "@/components/form-field";
+
 export function ConditionEditor({
 	def,
 	onChange,
@@ -85,15 +87,6 @@ export function ConditionEditor({
 					className={inp}
 				/>
 			</FL>
-		</div>
-	);
-}
-
-function FL({ label, children }: { label: string; children: React.ReactNode }) {
-	return (
-		<div className="space-y-1">
-			<label className="text-muted-foreground text-xs">{label}</label>
-			{children}
 		</div>
 	);
 }

@@ -3,8 +3,15 @@ package checker
 import (
 	"context"
 	"encoding/json"
+	"errors"
+
+	"github.com/google/uuid"
 	"net/http"
 	"time"
+
+	"encore.dev/beta/errs"
+	"encore.dev/storage/sqldb"
+	subsvc "subs-check-re/services/subscription"
 )
 
 // evaluateRuleForNode runs a single rule definition against an HTTP client (optionally
@@ -12,7 +19,10 @@ import (
 // Used by both the TestRule API endpoint and any in-process rule evaluation
 // (CLI tools, batch validators, etc.).
 func evaluateRuleForNode(ctx context.Context, userID, ruleType string, definition json.RawMessage, nodeID string) (*TestRuleResult, error) {
-	httpClient, nodeName, cleanup := openTestClient(ctx, userID, nodeID)
+	httpClient, nodeName, cleanup, err := openTestClient(ctx, userID, nodeID)
+	if err != nil {
+		return nil, err
+	}
 	if cleanup != nil {
 		defer cleanup()
 	}
@@ -58,36 +68,37 @@ func evaluateRuleForNode(ctx context.Context, userID, ruleType string, definitio
 	}, nil
 }
 
-// openTestClient returns an http.Client routed through the given user-owned node, or
-// a plain default client if no nodeID is provided / the node is not accessible.
-// The returned cleanup closes the underlying proxy client (nil if no proxy was opened).
-func openTestClient(ctx context.Context, userID, nodeID string) (*http.Client, string, func()) {
+// openTestClient never silently falls back to direct access for an explicit node.
+// Ownership comes from its subscription, including nodes not checked yet.
+func openTestClient(ctx context.Context, userID, nodeID string) (*http.Client, string, func(), error) {
 	if nodeID == "" {
-		return &http.Client{Timeout: 15 * time.Second}, "", nil
+		return &http.Client{Timeout: 15 * time.Second}, "", nil, nil
 	}
-
-	var name string
+	if _, err := uuid.Parse(nodeID); err != nil {
+		return nil, "", nil, errs.B().Code(errs.NotFound).Msg("test node not found").Err()
+	}
+	var name, subscriptionID string
 	var configJSON []byte
-	err := db.QueryRow(ctx, `
-		SELECT n.name, n.config FROM nodes n
-		WHERE n.id = $1
-		  AND n.subscription_id IN (
-		    SELECT DISTINCT subscription_id FROM check_jobs WHERE user_id = $2
-		  )
-	`, nodeID, userID).Scan(&name, &configJSON)
-	if err != nil || len(configJSON) == 0 {
-		return &http.Client{Timeout: 15 * time.Second}, "", nil
+	err := db.QueryRow(ctx, `SELECT name, subscription_id, config FROM nodes WHERE id=$1`, nodeID).Scan(&name, &subscriptionID, &configJSON)
+	if errors.Is(err, sqldb.ErrNoRows) {
+		return nil, "", nil, errs.B().Code(errs.NotFound).Msg("test node not found").Err()
 	}
-
+	if err != nil {
+		return nil, "", nil, errs.B().Code(errs.Internal).Msg("failed to load test node").Err()
+	}
+	sub, err := subsvc.GetSubscriptionByID(ctx, &subsvc.GetByIDParams{ID: subscriptionID})
+	if err != nil || sub.UserID != userID {
+		return nil, "", nil, errs.B().Code(errs.NotFound).Msg("test node not found").Err()
+	}
 	var mapping map[string]any
 	if err := json.Unmarshal(configJSON, &mapping); err != nil {
-		return &http.Client{Timeout: 15 * time.Second}, "", nil
+		return nil, "", nil, errs.B().Code(errs.InvalidArgument).Msg("invalid test node configuration").Err()
 	}
 	pc := newProxyClient(mapping)
 	if pc == nil {
-		return &http.Client{Timeout: 15 * time.Second}, "", nil
+		return nil, "", nil, errs.B().Code(errs.InvalidArgument).Msg("unsupported test node configuration").Err()
 	}
-	return pc.Client, name, func() { pc.close() }
+	return pc.Client, name, func() { pc.close() }, nil
 }
 
 func runConditionTest(ctx context.Context, client *http.Client, ruleType string, def json.RawMessage, dr *DebugRecorder, start time.Time, nodeName string) *TestRuleResult {
@@ -144,4 +155,3 @@ func extractConditionArtifacts(steps []DebugStep) (statusCode int, finalURL, bod
 	}
 	return
 }
-

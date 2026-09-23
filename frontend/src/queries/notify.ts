@@ -41,7 +41,10 @@ export function useDeleteNotifyChannel() {
 
 export function useTestNotifyChannel() {
 	return useMutation({
-		mutationFn: (args: { id: string; params: notify.TestChannelParams }) =>
-			client.notify.TestChannel(args.id, args.params),
+		mutationFn: async (args: { id: string; params: notify.TestChannelParams }) => {
+			const result = await client.notify.TestChannel(args.id, args.params);
+			if (!result.ok) throw new Error(result.error || "Notification delivery failed");
+			return result;
+		},
 	});
 }

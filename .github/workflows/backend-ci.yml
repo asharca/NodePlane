@@ -1,0 +1,132 @@
+name: Backend and Functional CI
+on:
+  pull_request:
+    paths: ['services/**', 'frontend/**', 'go.mod', 'go.sum', 'tests/**', 'docs/**', 'README.md', '.github/workflows/backend-ci.yml']
+  push:
+    branches: ['main']
+    paths: ['services/**', 'frontend/**', 'go.mod', 'go.sum', 'tests/**', 'docs/**', 'README.md', '.github/workflows/backend-ci.yml']
+permissions:
+  contents: read
+concurrency:
+  group: functional-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  functional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - name: Install Encore CLI
+        run: |
+          curl --fail --location --retry 3 https://encore.dev/install.sh | bash
+          echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
+      - name: Validate README links and committed screenshots
+        run: python3 tests/check_docs.py
+      - name: Configure disposable local application
+        run: |
+          printf '{}\n' > encore.app
+          printf 'JWTSecret: "nodeplane-ci-only-secret-never-use-in-production"\n' > secrets.local.cue
+          mkdir -p test-results/backend frontend/test-results/functional
+          encore version
+      - name: Build real frontend and install browser runtime
+        id: build
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          npm install --prefix "$PLAYWRIGHT_RUNTIME" --no-package-lock --ignore-scripts playwright@1.55.0
+          "$PLAYWRIGHT_RUNTIME/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Start loopback-only external-service fixtures
+        run: |
+          echo '127.0.0.1 ip-api.com' | sudo tee -a /etc/hosts
+          nohup python3 tests/fixtures/server.py > test-results/backend/fixtures.log 2>&1 &
+          echo $! > test-results/backend/fixture.pid
+          sudo nohup python3 tests/fixtures/server.py --port 80 --smtp-port 18083 > test-results/backend/ip-fixture.log 2>&1 &
+          echo $! > test-results/backend/ip-fixture.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18081/health >/dev/null && curl -fsS http://127.0.0.1/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Go unit and database regressions
+        id: go
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=15s 300s encore test -v -count=1 -timeout=3m ./... 2>&1 | tee test-results/backend/go-test.log
+      - name: Save Go diagnostics immediately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodeplane-go-tests
+          path: test-results/backend/go-test.log
+          retention-days: 14
+      - name: Start real backend and frontend
+        id: servers
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          nohup encore run --port 4000 > test-results/backend/server.log 2>&1 &
+          echo $! > test-results/backend/backend.pid
+          PORT=3000 HOST=127.0.0.1 ENCORE_URL=http://127.0.0.1:4000 nohup node frontend/.output/server/index.mjs > test-results/backend/frontend.log 2>&1 &
+          echo $! > test-results/backend/frontend.pid
+          for attempt in $(seq 1 120); do
+            if [ "$(curl --max-time 2 -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/auth/me || true)" = '401' ] && curl --max-time 2 -fsS http://127.0.0.1:3000/login >/dev/null; then exit 0; fi
+            if ! kill -0 "$(cat test-results/backend/backend.pid)" 2>/dev/null; then cat test-results/backend/server.log; exit 1; fi
+            sleep 2
+          done
+          cat test-results/backend/server.log test-results/backend/frontend.log
+          exit 1
+      - name: Real API persistence and scheduled workflows
+        id: api
+        if: ${{ !cancelled() && steps.servers.outcome == 'success' }}
+        env:
+          NODEPLANE_E2E_DISPOSABLE: '1'
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=10s 180s python3 -u tests/functional_api.py 2>&1 | tee test-results/backend/functional-api.log
+      - name: Save API diagnostics immediately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodeplane-api-tests
+          path: |
+            test-results/backend/functional-api.*
+            test-results/backend/server.log
+          retention-days: 14
+      - name: Real browser workflows
+        id: browser
+        if: ${{ !cancelled() && steps.servers.outcome == 'success' }}
+        env:
+          NODEPLANE_E2E_DISPOSABLE: '1'
+          PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
+        run: |
+          set -o pipefail
+          (cd frontend && timeout --signal=TERM --kill-after=10s 180s node scripts/functional-browser.mjs) 2>&1 | tee test-results/backend/functional-browser.log
+      - name: Record outcomes and stop disposable services
+        if: always()
+        run: |
+          printf 'Go=%s API=%s Browser=%s\n' '${{ steps.go.outcome }}' '${{ steps.api.outcome }}' '${{ steps.browser.outcome }}' > test-results/backend/exit-status.txt
+          for service in backend frontend fixture; do
+            if [ -f "test-results/backend/$service.pid" ]; then kill "$(cat "test-results/backend/$service.pid")" 2>/dev/null || true; fi
+          done
+          if [ -f test-results/backend/ip-fixture.pid ]; then sudo kill "$(cat test-results/backend/ip-fixture.pid)" 2>/dev/null || true; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nodeplane-functional-tests
+          path: |
+            test-results/backend/
+            frontend/test-results/functional/
+          retention-days: 14

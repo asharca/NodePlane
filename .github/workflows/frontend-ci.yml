@@ -1,0 +1,69 @@
+name: Frontend CI
+on:
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+  push:
+    branches: ['main']
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+permissions:
+  contents: read
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bun run check-types
+      - name: Unit and component tests
+        run: |
+          mkdir -p test-results/unit
+          bunx vitest run --reporter=default --reporter=json --outputFile=test-results/unit/report.json
+      - name: Production build
+        run: bun run build
+      - name: Install isolated browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/nodeplane-browser" --no-package-lock --ignore-scripts playwright@1.55.0
+          "$RUNNER_TEMP/nodeplane-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Browser smoke tests (mocked API)
+        env:
+          PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
+        run: |
+          set -euo pipefail
+          PORT=3000 HOST=127.0.0.1 node .output/server/index.mjs > "$RUNNER_TEMP/nodeplane-preview.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/login > /dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then cat "$RUNNER_TEMP/nodeplane-preview.log"; exit 1; fi
+          node scripts/ui-smoke.mjs
+      - name: Upload UI screenshots and unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodeplane-ui-preview
+          path: frontend/test-results/
+          retention-days: 14

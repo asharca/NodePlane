@@ -1,38 +1,29 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Radar } from "lucide-react";
+import { Plus, Radar } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useMonacoSetup } from "@/components/platforms/engine";
 import { RuleInspector } from "@/components/platforms/RuleInspector";
 import { RuleListPane } from "@/components/platforms/RuleListPane";
+import { RequestError } from "@/components/request-state";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRules } from "@/queries";
-
-export const Route = createFileRoute("/rules")({
-	component: RulesPage,
-});
-
+export const Route = createFileRoute("/rules")({ component: RulesPage });
 function RulesPage() {
 	useMonacoSetup();
-	const { data, isLoading } = useRules();
-	const rules = data?.rules ?? [];
-
+	const rulesQuery = useRules();
+	const rules = rulesQuery.data?.rules ?? [];
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [draft, setDraft] = useState(false);
-
-	// Keep selection valid as rules change (after create/delete).
 	useEffect(() => {
-		if (selectedId && !rules.some((r) => r.id === selectedId)) {
+		if (selectedId && !rules.some((rule) => rule.id === selectedId))
 			setSelectedId(null);
-		}
 	}, [rules, selectedId]);
-
-	// On desktop, open the first rule by default so the inspector isn't blank on
-	// landing. Fires once; mobile stays on the list.
 	const didAutoSelect = useRef(false);
 	useEffect(() => {
-		if (didAutoSelect.current) return;
 		if (
+			!didAutoSelect.current &&
 			rules.length > 0 &&
 			!selectedId &&
 			!draft &&
@@ -43,10 +34,8 @@ function RulesPage() {
 			setSelectedId(rules[0].id);
 		}
 	}, [rules, selectedId, draft]);
-
-	const selected = rules.find((r) => r.id === selectedId) ?? null;
+	const selected = rules.find((rule) => rule.id === selectedId) ?? null;
 	const showInspector = draft || !!selected;
-
 	const startNew = () => {
 		setDraft(true);
 		setSelectedId(null);
@@ -59,27 +48,34 @@ function RulesPage() {
 		setDraft(false);
 		setSelectedId(null);
 	};
-	// After a save, stay on (or jump to) the saved rule instead of closing.
 	const handleSaved = (id: string) => {
 		setDraft(false);
 		setSelectedId(id);
 	};
-
-	if (isLoading) {
+	if (rulesQuery.isLoading)
 		return (
-			<div className="p-4">
-				<Skeleton className="h-[70vh] w-full" />
+			<div
+				aria-busy="true"
+				className="grid h-full gap-5 p-5 lg:grid-cols-[280px_1fr]"
+			>
+				<Skeleton className="h-full rounded-xl" />
+				<Skeleton className="hidden h-full rounded-xl lg:block" />
 			</div>
 		);
-	}
-
+	if (rulesQuery.isError && !rulesQuery.data)
+		return (
+			<RequestError
+				title="Platform rules could not be loaded"
+				onRetry={() => void rulesQuery.refetch()}
+				retrying={rulesQuery.isFetching}
+			/>
+		);
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			<div className="flex h-full min-h-0">
-				{/* LIST — full width on mobile when no inspector, fixed col on lg */}
 				<div
 					className={[
-						"min-h-0 w-full border-border lg:w-[256px] lg:flex-shrink-0 lg:border-r",
+						"min-h-0 w-full border-border/70 bg-card/60 lg:w-[280px] lg:shrink-0 lg:border-r",
 						showInspector ? "hidden lg:flex" : "flex",
 					].join(" ")}
 				>
@@ -90,8 +86,6 @@ function RulesPage() {
 						onNew={startNew}
 					/>
 				</div>
-
-				{/* INSPECTOR / EMPTY */}
 				<div
 					className={[
 						"min-h-0 min-w-0 flex-1",
@@ -113,14 +107,25 @@ function RulesPage() {
 							onMobileBack={close}
 						/>
 					) : (
-						<div className="flex flex-1 items-center justify-center">
+						<div className="flex min-w-0 flex-1 items-center justify-center p-4 sm:p-8">
 							<EmptyState
 								icon={Radar}
-								title={rules.length === 0 ? "No rules yet" : "Select a rule"}
+								title={
+									rules.length === 0
+										? "Define your first detection rule"
+										: "Inspect a platform rule"
+								}
 								description={
 									rules.length === 0
-										? "Built-ins seed automatically. Create one to detect a custom platform."
-										: "Pick a rule on the left to inspect, edit, and test it."
+										? "Built-in rules seed automatically. Create a rule to detect a custom platform."
+										: "Choose a rule to review its conditions, edit its script and test a response."
+								}
+								className="w-full max-w-lg bg-muted/20 py-12"
+								action={
+									<Button onClick={startNew}>
+										<Plus className="size-4" />
+										Create rule
+									</Button>
 								}
 							/>
 						</div>

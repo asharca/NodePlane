@@ -15,6 +15,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
 		<Sonner
 			theme={theme as ToasterProps["theme"]}
 			className="toaster group"
+			// Rule editors and dialogs keep their primary actions at the bottom.
+			// A hovered bottom-right toast used to indefinitely intercept Save.
+			position="top-center"
+			closeButton
 			icons={{
 				success: <CircleCheckIcon className="size-4" />,
 				info: <InfoIcon className="size-4" />,

@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-
 import {
 	MutationCache,
 	QueryCache,
@@ -15,9 +14,8 @@ import {
 	useRouterState,
 } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
-import { MobileTabbar } from "@/components/mobile-tabbar";
+import { AppShell } from "@/components/app-shell";
 import { PlatformRulesProvider } from "@/components/platform-rules-context";
-import { Rail } from "@/components/rail";
 import { Toaster } from "@/components/ui/sonner";
 import { isAuthenticated } from "@/lib/auth";
 import { handleUnauthorized, isApiError } from "@/lib/client";
@@ -25,11 +23,8 @@ import appCss from "../styles.css?url";
 
 // biome-ignore lint/complexity/noBannedTypes: intentionally empty context for TanStack Router
 export type RouterAppContext = {};
-
 const queryClient = new QueryClient({
-	queryCache: new QueryCache({
-		onError: (err) => handleUnauthorized(err),
-	}),
+	queryCache: new QueryCache({ onError: (err) => handleUnauthorized(err) }),
 	mutationCache: new MutationCache({
 		onError: (err) => handleUnauthorized(err),
 	}),
@@ -43,46 +38,43 @@ const queryClient = new QueryClient({
 		},
 	},
 });
-
 export const Route = createRootRouteWithContext<RouterAppContext>()({
 	beforeLoad: ({ location }) => {
-		if (typeof window === "undefined") return; // auth unknowable during SSR — client re-runs this
+		if (typeof window === "undefined") return;
 		const authed = isAuthenticated();
 		const isLoginPage = location.pathname === "/login";
-		if (!authed && !isLoginPage) {
-			throw redirect({ to: "/login" });
-		}
-		if (authed && isLoginPage) {
-			throw redirect({ to: "/" });
-		}
+		if (!authed && !isLoginPage) throw redirect({ to: "/login" });
+		if (authed && isLoginPage) throw redirect({ to: "/" });
 	},
 	head: () => ({
 		meta: [
 			{ charSet: "utf-8" },
-			{ name: "viewport", content: "width=device-width, initial-scale=1" },
-			{ title: "subs-check" },
-			{ name: "description", content: "Proxy node group checker" },
+			{
+				name: "viewport",
+				content: "width=device-width, initial-scale=1, viewport-fit=cover",
+			},
+			{ title: "NodePlane · Network workspace" },
+			{
+				name: "description",
+				content:
+					"Manage node groups, inspect connectivity and automate checks with NodePlane.",
+			},
 		],
 		links: [
 			{ rel: "stylesheet", href: appCss },
-			{ rel: "icon", href: "/favicon.ico" },
+			{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
 		],
 	}),
 	component: RootComponent,
 });
-
 function RootDocument({ children }: { children: ReactNode }) {
-	// suppressHydrationWarning on <html>: the inline theme script below sets the
-	// `dark` class before hydration, so the client class intentionally differs
-	// from the server-rendered markup.
 	return (
 		<html lang="en" suppressHydrationWarning>
 			<head>
-				{/* Inline theme detection — must run before first paint */}
 				<script
-					// biome-ignore lint/security/noDangerouslySetInnerHtml: intentional inline script for theme flash prevention
+					// biome-ignore lint/security/noDangerouslySetInnerHtml: first-paint theme detection; no user content
 					dangerouslySetInnerHTML={{
-						__html: `(()=>{var s=localStorage.getItem("theme"),t=s==="light"||s==="dark"?s:window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",t==="dark")})()`,
+						__html: `(()=>{let s;try{s=localStorage.getItem("theme")}catch{}const t=s==="light"||s==="dark"?s:window.matchMedia?.("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",t==="dark")})()`,
 					}}
 				/>
 				<HeadContent />
@@ -94,33 +86,23 @@ function RootDocument({ children }: { children: ReactNode }) {
 		</html>
 	);
 }
-
 function RootComponent() {
 	const { location } = useRouterState();
-	// Auth lives in localStorage, which is unreadable during SSR. Gate the
-	// auth-dependent layout behind a mount flag so the server render and the
-	// first client render agree (both unauthenticated) — otherwise React throws
-	// a hydration mismatch when the client immediately knows the user is logged
-	// in. After mount we re-render with the real auth state.
+	// Auth is client-side; keep SSR and the first hydration render identical.
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => setMounted(true), []);
 	const authed = mounted && isAuthenticated() && location.pathname !== "/login";
-
 	return (
 		<RootDocument>
 			<QueryClientProvider client={queryClient}>
 				{authed ? (
 					<PlatformRulesProvider>
-						<div className="flex h-dvh flex-col md:flex-row">
-							<Rail />
-							<main className="min-h-0 flex-1 overflow-hidden">
-								<Outlet />
-							</main>
-							<MobileTabbar />
-						</div>
+						<AppShell>
+							<Outlet />
+						</AppShell>
 					</PlatformRulesProvider>
 				) : (
-					<div className="flex min-h-screen items-center justify-center">
+					<div className="flex min-h-dvh items-center justify-center">
 						<Outlet />
 					</div>
 				)}

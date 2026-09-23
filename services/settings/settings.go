@@ -180,20 +180,16 @@ type APIKeyResponse struct {
 func GetAPIKey(ctx context.Context) (*APIKeyResponse, error) {
 	claims := encauth.Data().(*authsvc.UserClaims)
 
+	// Atomic get-or-create: a concurrent GET must never rotate an existing key.
 	var key string
-	err := db.QueryRow(ctx,
-		`SELECT api_key FROM user_settings WHERE user_id=$1`,
-		claims.UserID).Scan(&key)
-
-	if err != nil || key == "" {
-		key = uuid.New().String()
-		if _, err := db.Exec(ctx, `
-			INSERT INTO user_settings (user_id, api_key)
-			VALUES ($1, $2)
-			ON CONFLICT (user_id) DO UPDATE SET api_key = EXCLUDED.api_key
-		`, claims.UserID, key); err != nil {
-			return nil, errs.B().Code(errs.Internal).Msg("failed to store API key").Err()
-		}
+	err := db.QueryRow(ctx, `
+		INSERT INTO user_settings (user_id, api_key) VALUES ($1, $2)
+		ON CONFLICT (user_id) DO UPDATE
+		SET api_key = COALESCE(NULLIF(user_settings.api_key, ''), EXCLUDED.api_key)
+		RETURNING api_key
+	`, claims.UserID, uuid.New().String()).Scan(&key)
+	if err != nil {
+		return nil, errs.B().Code(errs.Internal).Msg("failed to read API key").Err()
 	}
 	return &APIKeyResponse{APIKey: key}, nil
 }

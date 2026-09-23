@@ -104,6 +104,7 @@ function ExportTagsPage() {
 				<div className="flex items-center justify-between gap-3 text-sm">
 					<span>Detected country</span>
 					<Switch
+						aria-label="Detected country"
 						checked={showCountry}
 						onCheckedChange={(v) => setShowCountry(v === true)}
 					/>
@@ -111,6 +112,7 @@ function ExportTagsPage() {
 				<div className="flex items-center justify-between gap-3 text-sm">
 					<span>Speed</span>
 					<Switch
+						aria-label="Speed"
 						checked={showSpeed}
 						onCheckedChange={(v) => setShowSpeed(v === true)}
 					/>
@@ -125,13 +127,18 @@ function ExportTagsPage() {
 						return (
 							<div key={key} className="flex items-center gap-3">
 								<Switch
+									aria-label={`Include ${labelFor(key)} tag`}
 									checked={t?.enabled ?? true}
 									onCheckedChange={(v) => setTag(key, { enabled: v === true })}
 								/>
-								<Label className="w-28 shrink-0 truncate text-xs">
+								<Label
+									htmlFor={`export-tag-${key}`}
+									className="w-28 shrink-0 truncate text-xs"
+								>
 									{labelFor(key)}
 								</Label>
 								<Input
+									id={`export-tag-${key}`}
 									value={t?.label ?? ""}
 									placeholder={key}
 									onChange={(e) => setTag(key, { label: e.target.value })}

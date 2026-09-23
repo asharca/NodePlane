@@ -1,15 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Inbox } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Button } from "@/components/ui/button";
+import { RequestError } from "@/components/request-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { EmptyState } from "@/components/ui/empty-state";
 import { DetailPane } from "@/components/workbench/detail-pane";
+import { WorkbenchOverview } from "@/components/workbench/overview";
 import { SubList } from "@/components/workbench/sub-list";
 import { NodeGroupDialog } from "@/components/workbench/subscription-dialog";
 import { isApiError } from "@/lib/client";
+import { groupDisplayName } from "@/lib/group-view";
 import { cn } from "@/lib/utils";
 import {
 	useDeleteSubscription,
@@ -18,16 +18,11 @@ import {
 	useSubscriptions,
 	useUpdateSubscription,
 } from "@/queries";
-
-const searchSchema = z.object({
-	sub: z.string().optional(),
-});
-
+const searchSchema = z.object({ sub: z.string().optional() });
 export const Route = createFileRoute("/")({
 	validateSearch: searchSchema,
 	component: WorkbenchPage,
 });
-
 function WorkbenchPage() {
 	const navigate = useNavigate({ from: "/" });
 	const { sub: selectedFromUrl } = Route.useSearch();
@@ -36,58 +31,44 @@ function WorkbenchPage() {
 	const [deleteOpen, setDeleteOpen] = useState(false);
 	const [activeJobId, setActiveJobId] = useState<string | null>(null);
 	const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-
 	const subsQuery = useSubscriptions();
 	const latestQuery = useLatestJobs();
 	const subs = subsQuery.data?.subscriptions ?? [];
 	const latestJobs = latestQuery.data?.jobs ?? {};
-
-	// Invalid/deleted ?sub falls back to no selection (spec: silent).
-	const selected = subs.find((s) => s.id === selectedFromUrl);
+	const selected = subs.find((sub) => sub.id === selectedFromUrl);
 	const selectedId = selected?.id ?? null;
-
-	// Reset per-group view state when switching groups.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: reset on id change only
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset only when changing groups
 	useEffect(() => {
 		setActiveJobId(null);
 		setSelectedJobId(null);
 	}, [selectedId]);
-
-	// If the selected group already has a running/queued job (page
-	// reload, scheduled run, 409 on trigger), attach to it.
 	const latestForSelected = selectedId ? latestJobs[selectedId] : undefined;
 	useEffect(() => {
 		if (
 			latestForSelected &&
 			(latestForSelected.status === "running" ||
 				latestForSelected.status === "queued")
-		) {
-			setActiveJobId((cur) => cur ?? latestForSelected.id);
-		}
+		)
+			setActiveJobId((current) => current ?? latestForSelected.id);
 	}, [latestForSelected]);
-
 	const { progress, logEntries, debugData, connection, inflight } =
 		useSSEProgress({
 			jobId: activeJobId,
 			subscriptionId: selectedId ?? "",
 			onDone: () => {
 				setActiveJobId(null);
-				setSelectedJobId(null); // jump to the fresh latest result
+				setSelectedJobId(null);
 			},
 		});
-
 	const liveProgressPct =
 		activeJobId && progress?.total
 			? ((progress.progress ?? 0) / progress.total) * 100
 			: null;
-
 	const updateMut = useUpdateSubscription();
 	const deleteMut = useDeleteSubscription();
-
 	const select = (id: string | null) =>
 		navigate({ search: id ? { sub: id } : {}, replace: false });
-
-	const handleToggleEnabled = () => {
+	function handleToggleEnabled() {
 		if (!selected) return;
 		updateMut.mutate(
 			{
@@ -105,32 +86,38 @@ function WorkbenchPage() {
 			{
 				onSuccess: () =>
 					toast.success(
-							selected.enabled ? "Node group disabled" : "Node group enabled",
+						selected.enabled ? "Node group disabled" : "Node group enabled",
 					),
-				onError: (e) =>
-					toast.error(isApiError(e) ? e.message : "Failed to update"),
+				onError: (error) =>
+					toast.error(isApiError(error) ? error.message : "Failed to update"),
 			},
 		);
-	};
-
-	const handleDelete = () => {
+	}
+	function handleDelete() {
 		if (!selected) return;
 		deleteMut.mutate(selected.id, {
 			onSuccess: () => {
 				toast.success("Node group deleted");
 				setDeleteOpen(false);
-				select(null);
+				void select(null);
 			},
-			onError: (e) => toast.error(isApiError(e) ? e.message : "Delete failed"),
+			onError: (error) =>
+				toast.error(isApiError(error) ? error.message : "Delete failed"),
 		});
-	};
-
+	}
+	if (subsQuery.isError && !subsQuery.data)
+		return (
+			<RequestError
+				title="Unable to load node groups"
+				onRetry={() => void subsQuery.refetch()}
+				retrying={subsQuery.isFetching}
+			/>
+		);
 	return (
 		<div className="flex h-full min-h-0">
-			{/* List column: full-width on mobile (hidden when a sub is open) */}
 			<div
 				className={cn(
-					"h-full w-full min-w-0 border-border md:w-[280px] md:shrink-0 md:border-r lg:w-[300px]",
+					"h-full w-full min-w-0 border-border/70 md:w-[280px] md:shrink-0 md:border-r xl:w-[310px]",
 					selectedId ? "hidden md:block" : "block",
 				)}
 			>
@@ -140,12 +127,10 @@ function WorkbenchPage() {
 					loading={subsQuery.isLoading}
 					selectedId={selectedId}
 					liveProgressPct={liveProgressPct}
-					onSelect={(id) => select(id)}
+					onSelect={(id) => void select(id)}
 					onAdd={() => setAddOpen(true)}
 				/>
 			</div>
-
-			{/* Detail pane */}
 			<div
 				className={cn(
 					"h-full min-w-0 flex-1",
@@ -164,33 +149,24 @@ function WorkbenchPage() {
 						inflight={inflight}
 						selectedJobId={selectedJobId}
 						onSelectJob={setSelectedJobId}
-						onRunStarted={(jobId) => setActiveJobId(jobId)}
+						onRunStarted={setActiveJobId}
 						onEdit={() => setEditOpen(true)}
 						onToggleEnabled={handleToggleEnabled}
 						onDelete={() => setDeleteOpen(true)}
-						onBack={() => select(null)}
-					/>
-				) : subs.length === 0 && !subsQuery.isLoading ? (
-					<EmptyState
-						icon={Inbox}
-						title="No node groups yet"
-						description="Add a remote subscription or a single node to start checking."
-						action={
-							<Button variant="success" onClick={() => setAddOpen(true)}>
-								Add node group
-							</Button>
-						}
+						onBack={() => void select(null)}
 					/>
 				) : (
-					<EmptyState
-						icon={Inbox}
-						title="Select a node group"
-						description="Pick a group on the left to see its nodes and run checks."
+					<WorkbenchOverview
+						subs={subs}
+						latestJobs={latestJobs}
+						loading={subsQuery.isLoading || latestQuery.isLoading}
+						summaryError={latestQuery.isError}
+						onRetry={() => void latestQuery.refetch()}
+						onAdd={() => setAddOpen(true)}
+						onSelect={(id) => void select(id)}
 					/>
 				)}
 			</div>
-
-			{/* Dialogs */}
 			<NodeGroupDialog open={addOpen} onOpenChange={setAddOpen} />
 			<NodeGroupDialog
 				open={editOpen}
@@ -200,7 +176,7 @@ function WorkbenchPage() {
 			<ConfirmDialog
 				open={deleteOpen}
 				onOpenChange={setDeleteOpen}
-				title={`Delete "${selected?.name || selected?.url || ""}"?`}
+				title={`Delete "${selected ? groupDisplayName(selected) : ""}"?`}
 				description="This removes the node group, all of its nodes and the entire check history. This cannot be undone."
 				confirmLabel="Delete"
 				pending={deleteMut.isPending}
