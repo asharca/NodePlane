@@ -20,18 +20,35 @@ type LocalUnlockResult struct {
 	Country   string                     `json:"country"`
 }
 
-// GetLocalUnlock checks which platforms are accessible from the server's own
-// network, running the current user's ENABLED rules (not the hardcoded defaults).
+// GetLocalUnlock checks the signed-in user's enabled rules.
 //
 //encore:api auth method=GET path=/network-unlock
 func GetLocalUnlock(ctx context.Context) (*LocalUnlockResult, error) {
-	claims := encauth.Data().(*authsvc.UserClaims)
+	claims, ok := encauth.Data().(*authsvc.UserClaims)
+	if !ok || claims == nil || claims.UserID == "" {
+		return nil, errs.B().Code(errs.Unauthenticated).Msg("missing auth data").Err()
+	}
+	return localUnlockForUser(ctx, claims.UserID)
+}
 
+// GetLocalUnlockForUser is an internal service boundary for background jobs.
+// Cron callbacks have no browser authentication context: callers must pass the
+// owner from the stored channel, not rely on auth.Data() from an earlier request.
+//
+//encore:api private method=GET path=/internal/network-unlock/:userID
+func GetLocalUnlockForUser(ctx context.Context, userID string) (*LocalUnlockResult, error) {
+	if userID == "" {
+		return nil, errs.B().Code(errs.InvalidArgument).Msg("user id is required").Err()
+	}
+	return localUnlockForUser(ctx, userID)
+}
+
+func localUnlockForUser(ctx context.Context, userID string) (*LocalUnlockResult, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	rules, err := loadUserRules(checkCtx, claims.UserID)
+	rules, err := loadUserRules(checkCtx, userID)
 	if err != nil {
 		return nil, errs.B().Code(errs.Internal).Msg("failed to load rules").Err()
 	}
@@ -51,8 +68,7 @@ func GetLocalUnlock(ctx context.Context) (*LocalUnlockResult, error) {
 	return &res, nil
 }
 
-// runRulesAgainst evaluates the given rules concurrently against the HTTP client
-// and returns a map of rule key -> outcome.
+// runRulesAgainst evaluates the given rules concurrently against the HTTP client.
 func runRulesAgainst(ctx context.Context, client *http.Client, rules []*PlatformRule) map[string]PlatformOutcome {
 	type kv struct {
 		key     string
