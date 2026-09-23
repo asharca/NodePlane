@@ -1,0 +1,103 @@
+name: UI before-after comparison (isolated)
+on:
+  push:
+    branches: ['diagnostics/ui-before-after']
+    paths: ['.github/workflows/ui-before-after.yml', 'diagnostics/compare-ui.mjs']
+permissions:
+  contents: read
+concurrency:
+  group: ui-before-after-comparison
+  cancel-in-progress: true
+jobs:
+  compare:
+    if: github.ref == 'refs/heads/diagnostics/ui-before-after'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODEPLANE_E2E_DISPOSABLE: '1'
+      REGISTER_INVITE_CODE: 'isolated-comparison-fixture-only'
+      PLAYWRIGHT_RUNTIME: ${{ runner.temp }}/nodeplane-browser
+      COMPARISON_OUTPUT: ${{ github.workspace }}/comparison-output
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          path: harness
+      - uses: actions/checkout@v4
+        with:
+          ref: e14cd39934656f8a6cff296d39097d041eb7a253
+          persist-credentials: false
+          path: before
+      - uses: actions/checkout@v4
+        with:
+          ref: 8879f24fce275ad3b4d55cee7cba3a91a0a3ceba
+          persist-credentials: false
+          path: after
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: after/go.mod
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.10'
+      - name: Prepare isolated tooling and provenance
+        run: |
+          mkdir -p comparison-output/logs comparison-output/source
+          node --check harness/diagnostics/compare-ui.mjs
+          curl --fail --location --retry 3 https://encore.dev/install.sh | bash
+          echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
+          npm install --prefix "$PLAYWRIGHT_RUNTIME" --no-package-lock --ignore-scripts playwright@1.55.0
+          "$PLAYWRIGHT_RUNTIME/node_modules/.bin/playwright" install --with-deps chromium
+          printf '{}\n' > after/encore.app
+          printf 'JWTSecret: "isolated-ui-comparison-never-use-in-production"\n' > after/secrets.local.cue
+          cp harness/diagnostics/compare-ui.mjs comparison-output/source/
+          cp harness/.github/workflows/ui-before-after.yml comparison-output/source/
+          { echo 'BEFORE'; git -C before rev-parse HEAD; echo 'AFTER'; git -C after rev-parse HEAD; node --version; bun --version; } > comparison-output/provenance.txt
+      - name: Build unchanged before and after production frontends
+        run: |
+          set -o pipefail
+          (cd before/frontend && bun install --frozen-lockfile && bun run build) 2>&1 | tee comparison-output/logs/before-build.log
+          (cd after/frontend && bun install --frozen-lockfile && bun run build) 2>&1 | tee comparison-output/logs/after-build.log
+          git -C before diff --stat -- frontend/src >> comparison-output/provenance.txt
+          git -C after diff --stat -- frontend/src >> comparison-output/provenance.txt
+      - name: Run actual backend, database, controlled targets and two frontends
+        run: |
+          echo '127.0.0.1 ip-api.com' | sudo tee -a /etc/hosts
+          nohup python3 after/tests/fixtures/server.py > comparison-output/logs/fixture.log 2>&1 &
+          echo $! > comparison-output/fixture.pid
+          sudo nohup python3 after/tests/fixtures/server.py --port 80 --smtp-port 18083 > comparison-output/logs/ip-fixture.log 2>&1 &
+          echo $! > comparison-output/ip-fixture.pid
+          (cd after && exec nohup encore run --port 4000) > comparison-output/logs/backend.log 2>&1 &
+          echo $! > comparison-output/backend.pid
+          PORT=3100 HOST=127.0.0.1 ENCORE_URL=http://127.0.0.1:4000 nohup node before/frontend/.output/server/index.mjs > comparison-output/logs/before-server.log 2>&1 &
+          echo $! > comparison-output/before.pid
+          PORT=3200 HOST=127.0.0.1 ENCORE_URL=http://127.0.0.1:4000 nohup node after/frontend/.output/server/index.mjs > comparison-output/logs/after-server.log 2>&1 &
+          echo $! > comparison-output/after.pid
+          for attempt in $(seq 1 120); do
+            if [ "$(curl --max-time 2 -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/auth/me || true)" = '401' ] && curl --max-time 2 -fsS http://127.0.0.1:3100/login >/dev/null && curl --max-time 2 -fsS http://127.0.0.1:3200/login >/dev/null && curl --max-time 2 -fsS http://127.0.0.1:18081/health >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          tail -100 comparison-output/logs/*server.log comparison-output/logs/backend.log
+          exit 1
+      - name: Seed one real account and capture all paired pages
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=10s 480s node harness/diagnostics/compare-ui.mjs 2>&1 | tee comparison-output/logs/capture.log
+      - name: Record environment and clean up disposable processes
+        if: always()
+        run: |
+          { date -u; encore version; docker ps --format '{{.Image}} {{.Status}}'; } >> comparison-output/provenance.txt
+          for service in backend before after fixture; do
+            if [ -f "comparison-output/$service.pid" ]; then kill "$(cat "comparison-output/$service.pid")" 2>/dev/null || true; fi
+          done
+          if [ -f comparison-output/ip-fixture.pid ]; then sudo kill "$(cat comparison-output/ip-fixture.pid)" 2>/dev/null || true; fi
+          rm -f comparison-output/*.pid
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nodeplane-real-ui-before-after
+          path: comparison-output/
+          retention-days: 14
+          if-no-files-found: error
