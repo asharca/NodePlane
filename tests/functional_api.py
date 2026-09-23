@@ -102,7 +102,7 @@ class FunctionalAPI(unittest.TestCase):
     def wait_job(self, group, job_id):
         deadline = time.monotonic() + 40
         while time.monotonic() < deadline:
-            jobs = self.api("GET", f'/check/{group["id"]}/jobs?Limit=100&Offset=0')["jobs"]
+            jobs = self.api("GET", f'/check/{group["id"]}/jobs?limit=100&offset=0')["jobs"]
             job = next((j for j in jobs if j["id"] == job_id), None)
             if job and job["status"] in {"completed", "failed"}:
                 return job
@@ -114,7 +114,7 @@ class FunctionalAPI(unittest.TestCase):
         job_id = self.api("POST", f'/check/{group["id"]}', params)["job_id"]
         job = self.wait_job(group, job_id)
         self.assertEqual(job["status"], "completed", job)
-        result = self.api("GET", f'/check/{group["id"]}/results?JobID={job_id}')
+        result = self.api("GET", f'/check/{group["id"]}/results?job_id={job_id}')
         return job, result
 
     def test_auth_validation_duplicate_and_invalid_credentials(self):
@@ -180,7 +180,7 @@ class FunctionalAPI(unittest.TestCase):
         self.assertIsNone(group["cron_expr"])
         self.import_nodes(group)
         self.assertEqual(len(self.nodes(group)), 1)
-        self.api("POST", f'/subscription/{group["id"]}/refresh', expected=412)
+        self.api("POST", f'/subscription/{group["id"]}/refresh', expected=400)
         self.assertFalse(self.api("POST", f'/subscription/{group["id"]}/test-fetch')["ok"])
 
     def test_refresh_dry_run_and_fetch_proxy(self):
@@ -354,6 +354,9 @@ class FunctionalAPI(unittest.TestCase):
         node = self.nodes(group)[0]
         picker = self.api("GET", "/platform-rules/test-nodes")["nodes"]
         self.assertIn(node["node_id"], [n["id"] for n in picker])
+        _, _, other = user()
+        self.api("POST", "/platform-rules/test", {"rule_type": "condition", "definition": {"url": FIXTURE + "/platform", "status_code": 200}, "node_id": node["node_id"]}, token=other, expected=404)
+        self.api("POST", "/platform-rules/test", {"rule_type": "condition", "definition": {"url": FIXTURE + "/platform", "status_code": 200}, "node_id": "missing-test-node"}, expected=404)
         result = self.api("POST", "/platform-rules/test", {"rule_type": "condition", "definition": {"url": FIXTURE + "/platform", "status_code": 200}, "node_id": node["node_id"]})
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["node_name"], node["node_name"])
@@ -382,15 +385,15 @@ class FunctionalAPI(unittest.TestCase):
         self.assertEqual(partial["total"], 1)
         self.assertEqual(len(self.nodes(group)), 2)
         self.assertTrue(all(n["speed_kbps"] > 0 for n in self.nodes(group)), "A latency-only recheck must inherit prior speeds")
-        self.assertEqual(len(self.api("GET", f'/check/{group["id"]}/jobs?Limit=1&Offset=0')["jobs"]), 1)
-        self.assertEqual(len(self.api("GET", f'/check/{group["id"]}/jobs?Limit=1&Offset=1')["jobs"]), 1)
+        self.assertEqual(len(self.api("GET", f'/check/{group["id"]}/jobs?limit=1&offset=0')["jobs"]), 1)
+        self.assertEqual(len(self.api("GET", f'/check/{group["id"]}/jobs?limit=1&offset=1')["jobs"]), 1)
 
     def test_check_duplicate_rejection_cancellation_and_live_sse(self):
         self.configure(latency_test_url=FIXTURE + "/slow")
         group = self.group()
         self.import_nodes(group)
         job = self.api("POST", f'/check/{group["id"]}', {"speed_test": False, "media_apps": []})["job_id"]
-        self.api("POST", f'/check/{group["id"]}', {"speed_test": False, "media_apps": []}, expected=412)
+        self.api("POST", f'/check/{group["id"]}', {"speed_test": False, "media_apps": []}, expected=400)
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             stream = pool.submit(http, "GET", f"/check/{job}/progress", None, self.token)
             # Wait until the worker is registered, not merely until POST returns.
@@ -415,7 +418,7 @@ class FunctionalAPI(unittest.TestCase):
         job, _ = self.run_check(group)
         _, _, other = user()
         self.assertEqual(self.api("GET", f'/check/{group["id"]}/jobs', token=other)["jobs"], [])
-        self.api("GET", f'/check/{group["id"]}/results?JobID={job["id"]}', token=other, expected=404)
+        self.api("GET", f'/check/{group["id"]}/results?job_id={job["id"]}', token=other, expected=404)
         self.api("DELETE", f'/check/{job["id"]}', token=other, expected=404)
         self.assertEqual(self.api("GET", "/check-summaries", token=other)["jobs"], {})
 
@@ -490,6 +493,20 @@ class FunctionalAPI(unittest.TestCase):
             with self.subTest(method=method):
                 self.api(method, f'/notify/channels/{channel["id"]}' + suffix, data, token=other, expected=404)
         self.assertEqual(self.api("GET", "/notify/channels")["channels"][0]["name"], "Owned")
+
+
+    def test_network_unlock_and_unlock_notification(self):
+        # CI redirects ip-api.com to a loopback fixture; only user-owned local
+        # rules are enabled here. No real platform service is contacted.
+        for rule in self.api("GET", "/platform-rules")["rules"]:
+            self.api("PUT", f'/platform-rules/{rule["id"]}', {**rule, "enabled": False})
+        self.rule("local_fixture")
+        result = self.api("GET", "/network-unlock")
+        self.assertTrue(result["platforms"]["local_fixture"]["unlocked"])
+        self.assertEqual(set(result["platforms"]), {"local_fixture"})
+        self.assertEqual(result["ip"], "192.0.2.10")
+        channel = self.api("POST", "/notify/channels", {"name": "Unlock fixture", "type": "webhook", "config": {"url": FIXTURE + "/hook"}})
+        self.assertTrue(self.api("POST", f'/notify/channels/{channel["id"]}/test', {"report_type": "unlock"})["ok"])
 
 
 if __name__ == "__main__":

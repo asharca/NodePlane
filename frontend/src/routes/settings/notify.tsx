@@ -61,7 +61,7 @@ function NotifySettingsPage() {
 			{ id: ch.id, params: { report_type: "check" } },
 			{
 				onSuccess: () => toast.success(`Test sent to "${ch.name}"`),
-				onError: (e) => toast.error(isApiError(e) ? e.message : "Test failed"),
+				onError: (e) => toast.error(e instanceof Error ? e.message : "Test failed"),
 			},
 		);
 

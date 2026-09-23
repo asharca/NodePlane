@@ -117,7 +117,7 @@ export function DetailPane({
 					onRunStarted(resp.job_id);
 				},
 				onError: (e) => {
-					if (isApiError(e) && (e.status === 409 || e.status === 412)) {
+					if (isApiError(e) && (e.code === "failed_precondition" || e.status === 409 || e.status === 412)) {
 						toast.error("A check is already running for this node group");
 						return;
 					}

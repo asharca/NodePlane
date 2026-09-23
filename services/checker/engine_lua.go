@@ -23,6 +23,7 @@ func runLuaRule(ctx context.Context, client *http.Client, defRaw json.RawMessage
 
 	L := lua.NewState()
 	defer L.Close()
+	L.SetContext(ctx)
 
 	L.SetGlobal("http_get", L.NewFunction(func(L *lua.LState) int {
 		url := L.CheckString(1)
@@ -115,4 +116,3 @@ func runLuaRule(ctx context.Context, client *http.Client, defRaw json.RawMessage
 	}
 	return false, err
 }
-

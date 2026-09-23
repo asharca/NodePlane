@@ -284,7 +284,7 @@ await run('api-key-confirmation-copy-and-revocation', async (page, { token }, co
   assert.notEqual(newKey, oldKey);
   await request('GET', `/export/all?token=${oldKey}`, undefined, undefined, 401);
   await request('GET', `/export/all?token=${newKey}`);
-  await page.getByRole('button', { name: 'Copy', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Copy to clipboard', exact: true }).first().click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), newKey);
 });
 
