@@ -1,0 +1,79 @@
+name: Complete functional regressions
+on:
+  push:
+    branches: ['codex/nodeplane-asharca-ui']
+    paths: ['.github/workflows/close-functional-regressions.yml']
+permissions:
+  contents: write
+jobs:
+  finish:
+    if: github.ref == 'refs/heads/codex/nodeplane-asharca-ui'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/nodeplane-asharca-ui
+      - name: Connect scheduled reports to the explicit owner boundary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          p = Path('services/notify/notify.go')
+          s = p.read_text()
+          old = 'func sendUnlockReport(ctx context.Context, userID, chType string, configJSON []byte) {\n\tresult, err := checkersvc.GetLocalUnlock(ctx)'
+          new = 'func sendUnlockReport(ctx context.Context, userID, chType string, configJSON []byte) {\n\tresult, err := checkersvc.GetLocalUnlockForUser(ctx, userID)'
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+          p = Path('tests/functional_api.py')
+          s = p.read_text()
+          start = s.index('    def test_real_cron_trigger_and_automatic_completion_notification(')
+          end = s.index('if __name__ == "__main__":', start)
+          method = '''
+          def test_real_cron_trigger_and_automatic_completion_notification(self):
+              self.configure()
+              for rule in self.api("GET", "/platform-rules")["rules"]:
+                  self.api("PUT", f'/platform-rules/{rule["id"]}', {**rule, "enabled": False})
+              self.rule("scheduled_local")
+              group = self.group(name="Automatic fixture")
+              self.api("POST", "/notify/channels", {"name": "Automatic completion", "type": "webhook", "config": {"url": FIXTURE + "/hook", "headers": {"X-NodePlane-Test": self.uid + "-check"}}, "on_check_complete": True})
+              unlock = self.api("POST", "/notify/channels", {"name": "Automatic unlock", "type": "webhook", "config": {"url": FIXTURE + "/hook", "headers": {"X-NodePlane-Test": self.uid + "-unlock"}}, "unlock_cron": "* * * * *"})
+              schedule = self.api("POST", "/scheduler", {"subscription_id": group["id"], "cron_expr": "* * * * *", "options": {"speed_test": False, "upload_speed_test": False, "media_apps": []}})
+              try:
+                  deadline = time.monotonic() + 85
+                  completed = None
+                  check_event = unlock_event = None
+                  while time.monotonic() < deadline:
+                      jobs = self.api("GET", f'/check/{group["id"]}/jobs')["jobs"]
+                      completed = next((job for job in jobs if job["status"] == "completed"), None)
+                      _, events = http("GET", "/events", origin=FIXTURE)
+                      check_event = next((e for e in events["events"] if e["type"] == "webhook" and e.get("test_header") == self.uid + "-check"), None)
+                      unlock_event = next((e for e in events["events"] if e["type"] == "webhook" and e.get("test_header") == self.uid + "-unlock"), None)
+                      if completed and check_event and unlock_event:
+                          break
+                      time.sleep(0.25)
+                  self.assertIsNotNone(completed, "Real Cron callback did not complete a check")
+                  self.assertEqual(completed["available"], 2)
+                  self.assertEqual(len(self.nodes(group)), 2)
+                  self.assertIsNotNone(check_event, "Completion event did not reach its notification subscriber")
+                  self.assertIsNotNone(unlock_event, "Scheduled unlock report did not run without browser auth")
+                  self.assertEqual(unlock_event["payload"]["Platforms"], {"scheduled_local": True})
+                  self.assertEqual(unlock_event["payload"]["IP"], "192.0.2.10")
+              finally:
+                  self.api("DELETE", f'/scheduler/{schedule["id"]}')
+                  self.api("DELETE", f'/notify/channels/{unlock["id"]}')
+          '''
+          p.write_text(s[:start] + textwrap.indent(textwrap.dedent(method).strip(), '    ') + '\n\n\n' + s[end:])
+          p = Path('docs/testing.md')
+          s = p.read_text().replace('验证自动抓取、检测、持久化以及完成事件触发 Webhook', '验证自动抓取、检测、持久化、完成事件触发 Webhook，以及独立定时解锁报告在无浏览器登录上下文时按渠道所有者执行')
+          p.write_text(s)
+          PY
+          gofmt -w services/checker/local_check.go services/checker/local_check_background_test.go services/notify/notify.go
+          python3 -m py_compile tests/functional_api.py
+          python3 tests/check_docs.py
+          rm .github/workflows/close-functional-regressions.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -u
+          git commit -m 'fix: execute scheduled unlock reports with their stored owner'
+          git push origin HEAD:codex/nodeplane-asharca-ui
