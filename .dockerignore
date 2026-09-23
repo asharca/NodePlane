@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+secrets*.cue
+infra.local.json
+.encore
+frontend/node_modules
+frontend/.output
+frontend/dist
+test-results
+frontend/test-results
+*.log
