@@ -3,6 +3,9 @@ package checker
 import (
 	"context"
 	"encoding/json"
+	"errors"
+
+	"github.com/google/uuid"
 	"net/http"
 	"time"
 
@@ -71,10 +74,13 @@ func openTestClient(ctx context.Context, userID, nodeID string) (*http.Client, s
 	if nodeID == "" {
 		return &http.Client{Timeout: 15 * time.Second}, "", nil, nil
 	}
+	if _, err := uuid.Parse(nodeID); err != nil {
+		return nil, "", nil, errs.B().Code(errs.NotFound).Msg("test node not found").Err()
+	}
 	var name, subscriptionID string
 	var configJSON []byte
 	err := db.QueryRow(ctx, `SELECT name, subscription_id, config FROM nodes WHERE id=$1`, nodeID).Scan(&name, &subscriptionID, &configJSON)
-	if err == sqldb.ErrNoRows {
+	if errors.Is(err, sqldb.ErrNoRows) {
 		return nil, "", nil, errs.B().Code(errs.NotFound).Msg("test node not found").Err()
 	}
 	if err != nil {

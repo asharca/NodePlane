@@ -20,22 +20,35 @@ export function useCreateSubscription() {
 	});
 }
 
+export async function createNodeGroup(args: {
+	params: subscription.CreateParams;
+	nodeContent?: string;
+}) {
+	const content = args.nodeContent?.trim();
+	if (args.params.kind === "node" && !content) {
+		throw new Error("Paste one node share link");
+	}
+	const group = await client.subscription.Create(args.params);
+	if (content) {
+		try {
+			await client.checker.ImportNodes(group.id, { content, append: true });
+		} catch (importError) {
+			// Compensate only for the group created by this operation, never for an
+			// existing group. Do not report success if cleanup also fails.
+			try { await client.subscription.Delete(group.id); }
+			catch (cleanupError) {
+				throw new AggregateError([importError, cleanupError], `Import and cleanup failed. Remove node group ${group.id} before retrying.`);
+			}
+			throw importError;
+		}
+	}
+	return group;
+}
+
 export function useCreateNodeGroup() {
 	const qc = useQueryClient();
 	return useMutation({
-		mutationFn: async (args: {
-			params: subscription.CreateParams;
-			nodeContent?: string;
-		}) => {
-			const group = await client.subscription.Create(args.params);
-			if (args.nodeContent?.trim()) {
-				await client.checker.ImportNodes(group.id, {
-					content: args.nodeContent.trim(),
-					append: true,
-				});
-			}
-			return group;
-		},
+		mutationFn: createNodeGroup,
 		onSuccess: (_group, args) => {
 			if (args.params.kind === "node") {
 				qc.invalidateQueries({ queryKey: queryKeys.nodes(_group.id) });

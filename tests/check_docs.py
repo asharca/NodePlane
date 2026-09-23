@@ -5,7 +5,7 @@ import struct
 import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCS = [ROOT / 'README.md', ROOT / 'docs/testing.md']
+DOCS = [ROOT / 'README.md', ROOT / 'docs/testing.md', ROOT / 'frontend/README.md']
 count = 0
 for doc in DOCS:
     text = doc.read_text(encoding='utf-8')

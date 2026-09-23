@@ -357,6 +357,7 @@ class FunctionalAPI(unittest.TestCase):
         _, _, other = user()
         self.api("POST", "/platform-rules/test", {"rule_type": "condition", "definition": {"url": FIXTURE + "/platform", "status_code": 200}, "node_id": node["node_id"]}, token=other, expected=404)
         self.api("POST", "/platform-rules/test", {"rule_type": "condition", "definition": {"url": FIXTURE + "/platform", "status_code": 200}, "node_id": "missing-test-node"}, expected=404)
+        self.api("POST", "/platform-rules/test", {"rule_type": "condition", "definition": {"url": FIXTURE + "/platform", "status_code": 200}, "node_id": "00000000-0000-0000-0000-000000000000"}, expected=404)
         result = self.api("POST", "/platform-rules/test", {"rule_type": "condition", "definition": {"url": FIXTURE + "/platform", "status_code": 200}, "node_id": node["node_id"]})
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["node_name"], node["node_name"])
@@ -507,6 +508,37 @@ class FunctionalAPI(unittest.TestCase):
         self.assertEqual(result["ip"], "192.0.2.10")
         channel = self.api("POST", "/notify/channels", {"name": "Unlock fixture", "type": "webhook", "config": {"url": FIXTURE + "/hook"}})
         self.assertTrue(self.api("POST", f'/notify/channels/{channel["id"]}/test', {"report_type": "unlock"})["ok"])
+
+
+    def test_real_cron_trigger_and_automatic_completion_notification(self):
+        self.configure()
+        group = self.group(name="Automatic fixture")
+        self.api("POST", "/notify/channels", {"name": "Automatic report", "type": "webhook", "config": {"url": FIXTURE + "/hook", "headers": {"X-NodePlane-Test": self.uid}}, "on_check_complete": True})
+        schedule = self.api("POST", "/scheduler", {"subscription_id": group["id"], "cron_expr": "* * * * *", "options": {"speed_test": False, "upload_speed_test": False, "media_apps": []}})
+        try:
+            deadline = time.monotonic() + 85
+            completed = None
+            while time.monotonic() < deadline:
+                jobs = self.api("GET", f'/check/{group["id"]}/jobs')["jobs"]
+                completed = next((job for job in jobs if job["status"] == "completed"), None)
+                if completed:
+                    break
+                time.sleep(0.25)
+            self.assertIsNotNone(completed, "The real Cron callback did not complete a check")
+            self.assertEqual(completed["available"], 2)
+            self.assertEqual(len(self.nodes(group)), 2)
+            deadline = time.monotonic() + 10
+            delivered = False
+            while time.monotonic() < deadline:
+                _, events = http("GET", "/events", origin=FIXTURE)
+                delivered = any(e["type"] == "webhook" and e.get("test_header") == self.uid for e in events["events"])
+                if delivered:
+                    break
+                time.sleep(0.1)
+            self.assertTrue(delivered, "Check completion did not reach the automatic notification subscriber")
+        finally:
+            self.api("DELETE", f'/scheduler/{schedule["id"]}')
+
 
 
 if __name__ == "__main__":

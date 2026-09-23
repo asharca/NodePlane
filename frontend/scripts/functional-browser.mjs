@@ -43,13 +43,21 @@ async function poll(check, timeout = 20000) {
   }
   throw last ?? new Error('Assertion deadline exceeded');
 }
-async function mutation(page, method, endpoint, action, expected = 200) {
-  const pending = page.waitForResponse(r => r.request().method() === method && new URL(r.url()).pathname === `/api${endpoint}`);
-  await action();
-  const response = await pending;
+async function mutation(page, method, endpoint, action, expected = 200, readBody = true) {
+  // Attach rejection handlers to both promises immediately. A failed locator
+  // must not create an unhandled response-timeout rejection and abort reporting.
+  const [response] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === method && new URL(r.url()).pathname === `/api${endpoint}`),
+    action(),
+  ]);
   assert.equal(response.status(), expected, `${method} ${endpoint}`);
-  return response.json();
+  if (!readBody) return undefined; // void endpoints have no JSON response body
+  const error = await response.finished();
+  assert.equal(error, null, `${method} ${endpoint}: incomplete response`);
+  const text = await response.text();
+  return text ? JSON.parse(text) : undefined;
 }
+
 async function login(page, credentials) {
   await page.goto(origin + '/login');
   await page.getByLabel('Username', { exact: true }).fill(credentials.username);
@@ -85,8 +93,12 @@ async function run(name, body, { anonymous = false, mobile = false } = {}) {
   } catch (error) {
     checks.push({ name, status: 'failed', duration_ms: Date.now() - started, error: error.message, browser_errors: errors });
     await page.screenshot({ path: path.join(output, name + '.png'), fullPage: true }).catch(() => {});
+    await writeFile(path.join(output, name + '.html'), await page.content()).catch(() => {});
     console.error(`FAIL ${name}: ${error.stack}`);
-  } finally { await context.close(); }
+  } finally {
+    await writeFile(path.join(output, 'report.json'), JSON.stringify({ mode: 'real backend', checks, passed: checks.filter(c => c.status === 'passed').length, failed: checks.filter(c => c.status === 'failed').length }, null, 2) + '\n');
+    await context.close();
+  }
 }
 
 await run('auth-error-retention-and-session', async (page, credentials) => {
@@ -172,8 +184,11 @@ await run('single-node-import-and-rollback', async (page, { token }) => {
   await dialog.getByRole('button', { name: /Single node/ }).click();
   await dialog.getByLabel(/Name/).fill('Direct fixture');
   await dialog.getByLabel('Node share link').fill('invalid-node');
-  await dialog.getByRole('button', { name: 'Add group', exact: true }).click();
-  await page.getByText('Request failed', { exact: true }).waitFor({ timeout: 1500 }).catch(() => {});
+  const [rejected] = await Promise.all([
+    page.waitForResponse(r => r.request().method() === 'POST' && /\/api\/subscription\/[^/]+\/import-nodes$/.test(new URL(r.url()).pathname)),
+    dialog.getByRole('button', { name: 'Add group', exact: true }).click(),
+  ]);
+  assert.equal(rejected.status(), 400);
   await poll(async () => assert.equal((await request('GET', '/subscriptions', undefined, token)).subscriptions.length, 0));
   const secret = Buffer.from('aes-128-gcm:fixture').toString('base64');
   await dialog.getByLabel('Node share link').fill(`ss://${secret}@192.0.2.1:8388#DirectFixture`);
@@ -268,7 +283,7 @@ await run('profile-password-validation-and-save', async (page, { token, username
   await page.getByRole('button', { name: 'Change password' }).click();
   await page.getByRole('alert').filter({ hasText: 'Passwords do not match' }).waitFor();
   await page.getByLabel('Confirm new password', { exact: true }).fill(password + '-new');
-  await mutation(page, 'POST', '/auth/change-password', () => page.getByRole('button', { name: 'Change password' }).click());
+  await mutation(page, 'POST', '/auth/change-password', () => page.getByRole('button', { name: 'Change password' }).click(), 200, false);
   await request('POST', '/auth/login', { username, password }, undefined, 401);
   await request('POST', '/auth/login', { username, password: password + '-new' });
 });
@@ -276,10 +291,11 @@ await run('profile-password-validation-and-save', async (page, { token, username
 await run('api-key-confirmation-copy-and-revocation', async (page, { token }, context) => {
   await page.goto(origin + '/settings/export');
   const oldKey = (await request('GET', '/settings/api-key', undefined, token)).api_key;
-  await page.getByRole('button', { name: 'Regenerate', exact: true }).click();
+  await page.locator('#main-content').getByRole('button', { name: 'Regenerate', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
   assert.equal((await request('GET', '/settings/api-key', undefined, token)).api_key, oldKey);
-  await page.getByRole('button', { name: 'Regenerate', exact: true }).click();
+  await page.locator('#main-content').getByRole('button', { name: 'Regenerate', exact: true }).click();
   const { api_key: newKey } = await mutation(page, 'POST', '/settings/api-key/regenerate', () => page.getByRole('dialog').getByRole('button', { name: 'Regenerate', exact: true }).click());
   assert.notEqual(newKey, oldKey);
   await request('GET', `/export/all?token=${oldKey}`, undefined, undefined, 401);
