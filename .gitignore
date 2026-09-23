@@ -47,14 +47,19 @@ build
 .playwright-mcp/
 console-err.txt
 
-# Testing
+# Testing (README screenshots in docs/screenshots remain tracked)
 coverage
 .nyc_output
+test-results/
+playwright-report/
+__pycache__/
+*.pyc
 
 # ===== Environment =====
 .env
 .env.*
 !.env.example
+secrets.local.cue
 
 # Local infra config (contains plaintext credentials)
 infra.local.json
