@@ -45,8 +45,9 @@ jobs:
       - name: Prepare isolated tooling and provenance
         run: |
           mkdir -p comparison-output/logs comparison-output/source
-          # Correct the diagnostic harness's raw-byte hash; no application source is edited.
+          # Adapt the diagnostic harness, never either application's UI source.
           sed -i "s/typeof value === 'string' ?/typeof value === 'string' || Buffer.isBuffer(value) ?/" harness/diagnostics/compare-ui.mjs
+          sed -i "s/name: 'Add node group', exact: true/name: variant === 'before' ? 'Add group' : 'Add node group', exact: true/" harness/diagnostics/compare-ui.mjs
           node --check harness/diagnostics/compare-ui.mjs
           curl --fail --location --retry 3 https://encore.dev/install.sh | bash
           echo "$HOME/.encore/bin" >> "$GITHUB_PATH"
