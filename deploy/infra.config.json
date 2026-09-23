@@ -1,47 +1,27 @@
 {
   "$schema": "https://encore.dev/schemas/infra.schema.json",
   "metadata": {
-    "app_id": "subs-check-uqti",
+    "app_id": "nodeplane",
     "env_name": "production",
     "env_type": "production",
     "cloud": "local",
-    "base_url": "https://sub.rhzy.ai/api"
+    "base_url": "http://backend:8080"
   },
   "sql_servers": [
     {
-      "host": "10.0.10.114:5432",
+      "host": "postgres:5432",
       "tls_config": { "disabled": true },
       "databases": {
-        "auth": {
-          "username": { "$env": "DB_USER" },
-          "password": { "$env": "DB_PASSWORD" }
-        },
-        "subscription": {
-          "username": { "$env": "DB_USER" },
-          "password": { "$env": "DB_PASSWORD" }
-        },
-        "checker": {
-          "username": { "$env": "DB_USER" },
-          "password": { "$env": "DB_PASSWORD" }
-        },
-        "scheduler": {
-          "username": { "$env": "DB_USER" },
-          "password": { "$env": "DB_PASSWORD" }
-        },
-        "notify": {
-          "username": { "$env": "DB_USER" },
-          "password": { "$env": "DB_PASSWORD" }
-        },
-        "settings": {
-          "username": { "$env": "DB_USER" },
-          "password": { "$env": "DB_PASSWORD" }
-        }
+        "auth": { "username": { "$env": "DB_USER" }, "password": { "$env": "DB_PASSWORD" }, "max_connections": 10, "min_connections": 0 },
+        "subscription": { "username": { "$env": "DB_USER" }, "password": { "$env": "DB_PASSWORD" }, "max_connections": 10, "min_connections": 0 },
+        "checker": { "username": { "$env": "DB_USER" }, "password": { "$env": "DB_PASSWORD" }, "max_connections": 10, "min_connections": 0 },
+        "scheduler": { "username": { "$env": "DB_USER" }, "password": { "$env": "DB_PASSWORD" }, "max_connections": 10, "min_connections": 0 },
+        "notify": { "username": { "$env": "DB_USER" }, "password": { "$env": "DB_PASSWORD" }, "max_connections": 10, "min_connections": 0 },
+        "settings": { "username": { "$env": "DB_USER" }, "password": { "$env": "DB_PASSWORD" }, "max_connections": 10, "min_connections": 0 }
       }
     }
   ],
-  "secrets": {
-    "JWTSecret": { "$env": "JWT_SECRET" }
-  },
+  "secrets": { "JWTSecret": { "$env": "JWT_SECRET" } },
   "pubsub": [
     {
       "type": "nsq",
@@ -49,11 +29,7 @@
       "topics": {
         "job-completed": {
           "name": "job-completed",
-          "subscriptions": {
-            "notify-on-job-completed": {
-              "name": "notify-on-job-completed"
-            }
-          }
+          "subscriptions": { "notify-on-job-completed": { "name": "notify-on-job-completed" } }
         }
       }
     }

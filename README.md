@@ -2,17 +2,17 @@
 
 一个可以自托管的代理节点管理与检测工作台。集中管理订阅和单节点，检查可用性、延迟、下载/上传速度与平台解锁状态，并通过计划任务、通知和导出链接连接日常使用流程。
 
-前端采用 React 19、TanStack Start 和 [Asharca UI](https://asharca.github.io/ui/)，后端采用 Go、Encore 和 mihomo。UI 组件以源码形式存放在仓库中，可以直接修改，不依赖一个不存在的 `@asharca/ui` npm 包。
+前端采用 React 19、TanStack Start 和 [Asharca UI](https://asharca.github.io/ui/)，后端采用 Go、Encore 和 mihomo。UI 组件以源码形式存放在仓库中，可以直接修改。
 
-[界面预览](#界面预览) · [主要功能](#主要功能) · [本地开发](#本地开发) · [测试](#测试) · [自托管](#自托管) · [项目结构](#项目结构)
+[界面预览](#界面预览) · [主要功能](#主要功能) · [自托管](#自托管) · [本地开发](#本地开发) · [测试](#测试) · [项目结构](#项目结构)
 
 ## 界面预览
 
-下面的截图由本项目的浏览器测试生成，**使用虚构的演示账户和测试数据**，不代表真实节点速度、在线率或生产环境状态。图片保存在 `docs/screenshots/`，不依赖会过期的 CI 附件链接。
+截图由浏览器测试生成，**使用虚构的演示账户和测试数据**，不代表真实节点速度、在线率或生产状态。图片保存在仓库 `docs/screenshots/`，不依赖会过期的 CI 附件。
 
 ### 节点工作台 · 浅色
 
-![NodePlane 浅色工作台，包含可折叠导航、节点分组和检测概览](docs/screenshots/workspace-light.png)
+![NodePlane 浅色工作台](docs/screenshots/workspace-light.png)
 
 ### 节点工作台 · 深色
 
@@ -41,64 +41,111 @@
 
 | 模块 | 能力 |
 | --- | --- |
-| 节点管理 | 远程订阅分组、单节点分享链接、节点导入、追加单节点、从 URL 刷新、抓取试运行、通过已有节点抓取订阅、启用/停用与搜索筛选。 |
-| 节点检测 | 可用性、延迟、下载/上传测速；全组或选中节点检测；SSE 实时进度、取消运行、历史结果、调试记录。未执行的检测项目可继承已有结果。 |
-| 平台规则 | 内置平台规则，以及 Condition、JavaScript、TypeScript、Tengo、Lua 五种规则类型；编辑、测试、启停与恢复内置定义；支持选择代理节点进行测试。 |
-| 自动化 | Cron 定时检测、检测参数配置、任务启停和删除。订阅分组支持计划任务，单节点分组不支持。 |
-| 通知 | Webhook、Telegram、SMTP 邮件；检测报告、平台告警和定时网络解锁报告；提供通知渠道测试入口。 |
-| 导出 | 单组或全部节点导出；Clash、Base64 和 RouterOS 格式；独立 API 密钥、密钥轮换、导出排序、失效节点选项、国家/速度/平台标签及请求日志。不同导出格式的协议支持范围并不相同。 |
-| 账户与界面 | 邀请码注册、登录及保持登录、资料和密码修改；明暗主题、可折叠桌面侧栏、手机抽屉导航和响应式布局。 |
+| 节点管理 | 远程订阅分组、单节点分享链接、导入与追加、从 URL 刷新、抓取试运行、通过已有节点抓取订阅、启停及搜索筛选。 |
+| 节点检测 | 可用性、延迟、下载/上传测速；全组或选中节点检测；SSE 实时进度、取消、历史结果和调试记录。未执行项目可继承已有结果。 |
+| 平台规则 | 内置规则与 Condition、JavaScript、TypeScript、Tengo、Lua 五种规则类型；编辑、测试、启停、恢复内置定义和选择代理节点测试。 |
+| 自动化 | Cron 定时检测、检测参数、任务启停和删除。订阅分组支持计划任务，单节点分组不支持。 |
+| 通知 | Webhook、Telegram、SMTP 邮件；检测报告、平台告警、定时网络解锁报告和渠道测试。 |
+| 导出 | 单组/全部节点；Clash、Base64、RouterOS 格式；API 密钥与轮换、排序、失效节点选项、国家/速度/平台标签和请求日志。 |
+| 账户与界面 | 邀请码注册、登录/保持登录、资料与密码修改；明暗主题、可折叠侧栏、手机导航和响应式布局。 |
 
-节点协议能力来自 mihomo；某个协议可以导入，不等于所有导出格式都能保留其全部字段。平台检测结果也会受到出口 IP、目标平台策略和检测规则变化的影响。
+协议能力来自 mihomo；可以导入不代表所有导出格式都能保留全部字段。平台解锁结果受出口 IP、目标平台策略及规则变化影响。
 
-## 本地开发
+## 自托管
 
-### 环境
+**默认使用 Compose 内置 PostgreSQL，数据保存在 Docker 命名卷，不再需要外部数据库 IP。**
 
-- Go：遵循根目录 `go.mod`（当前为 `1.26.1`）。
-- Encore CLI 和可正常运行的 Docker：Encore 在本地管理 PostgreSQL 等基础设施。
-- Node.js 24 和 Bun `1.3.10`：与前端 CI 保持一致。
+```text
+frontend → backend → postgres:5432 → postgres_data 命名卷
+                 ↘ nsq:4150      → nsq_data 命名卷
+postgres 健康 → migrator 建库并迁移成功 → backend 启动
+```
 
-首次使用 Encore 可参考[官方安装文档](https://encore.dev/docs/go/install)。
+部署由五个服务组成：`postgres`、`migrator`、`nsq`、`backend`、`frontend`。PostgreSQL 与 NSQ 没有映射宿主机端口；它们和迁移容器使用内部数据网络。后端另接应用网络，以支持节点检测的外网访问。
+
+### 首次部署
 
 ```bash
 git clone https://github.com/asharca/NodePlane.git
 cd NodePlane
+cp .env.example .env
 ```
 
-仓库中的 `encore.app` 包含维护者的应用 ID。独立本地开发或测试时，可以先备份，再移除本地副本中的 `id`，保留其他配置；**不要把个人的 Encore 应用 ID 或密钥提交进仓库**。完全独立的本地副本也可以使用 `{}` 作为 `encore.app`。
+在 `.env`（或 Coolify 的环境变量）填写：
 
-在项目根目录创建 `secrets.local.cue`，设置只供本机使用的随机密钥：
+| 变量 | 设置 |
+| --- | --- |
+| `DB_USER` | 默认 `nodeplane`；三个数据库使用方保持一致。 |
+| `DB_PASSWORD` | 必填：数据库随机密码。 |
+| `JWT_SECRET` | 必填：独立随机签名密钥，建议至少 32 随机字节。 |
+| `REGISTER_INVITE_CODE` | 必填：自行设置的注册邀请码，不再悄悄使用代码默认值。 |
+| `BASE_URL` | 公网前端地址加 `/api`，例如 `https://nodeplane.example.com/api`。 |
+| `NODEPLANE_IMAGE_PREFIX` | 默认 `ghcr.io/asharca/nodeplane`。 |
+| `SUBS_CHECK_IMAGE_TAG` | 默认 `latest`；生产建议固定已发布的完整提交 SHA。 |
+
+可分别执行 `openssl rand -hex 32` 生成不同的密码/密钥。必填变量为空时 Compose 会在启动前报错。无需再设置 `DB_HOST`、`BACKEND_IMAGE`，也无需挂载本地 SQL 目录。
+
+确认所选版本的三个镜像均已发布：`nodeplane`、`nodeplane-frontend`、`nodeplane-migrator`。迁移镜像和后端必须使用相同版本；旧镜像不具备新的内部数据库配置。
+
+```bash
+docker compose config --quiet
+docker compose pull
+docker compose up -d
+# 默认入口：http://服务器地址:18080
+docker compose logs --tail 100 migrator backend
+```
+
+迁移容器已包含迁移工具、PostgreSQL 客户端、初始化脚本与全部 SQL，**启动时不从 GitHub 下载工具、不依赖仓库 bind mount**。它自动创建缺失的六个数据库并按版本迁移；重复运行不会清空数据，失败时仍阻止后端启动。
+
+### Coolify
+
+选择此仓库、相应分支和根目录 `docker-compose.yml`，填写上述变量，把域名路由到 `frontend:3000`。不需要单独创建外部 PostgreSQL，也不需要开启保留仓库来提供数据库脚本。生产入口应配置 HTTPS。
+
+**使用同一个 Coolify 资源/Compose 项目和部署服务器**，后续部署会复用命名卷。不要在 Coolify 中删除持久存储，也不要运行带 `--volumes` 的删除命令来“修复”迁移。
+
+**这是一个新数据库实例，不会自动迁移旧外部数据库的数据。** 旧账户、订阅和检测记录需要另行备份/恢复；旧数据库不会被本配置访问或删除。已有卷的数据库密码不会因为环境变量变更而自动更新。命名卷不是备份，也不会自动跟随应用迁移到另一台服务器。详见 [持久化、备份与切换说明](docs/compose-volumes.md)。
+
+### 本地构建与发布
+
+```bash
+# 从仓库根目录构建三个一致版本的镜像。
+encore build docker --config deploy/infra.config.json nodeplane:local
+docker build -t nodeplane-frontend:local ./frontend
+docker build -f deploy/migrator.Dockerfile -t nodeplane-migrator:local .
+# NODEPLANE_IMAGE_PREFIX=nodeplane、SUBS_CHECK_IMAGE_TAG=local 用于本地镜像；
+# 本地启动需用 Compose override 把三个服务的 pull_policy 设置为 never。
+```
+
+后端基础设施配置在构建时嵌入，SQL 地址固定为内部 `postgres:5432`。六个数据库分别限制连接池，避免耗尽单实例 PostgreSQL 默认连接数。`metadata.base_url` 是内部服务地址，不是用户访问地址。
+
+CI 在发布前对实际 Compose 栈验证空卷初始化、六库迁移、失败阻断、真实注册登录和容器删除重建后的数据保留。PR 只验证，不登录 GHCR、不发布、不触发 Coolify。`main`/版本标签发布三个一致版本的镜像，然后才触发 Coolify。**触发 Webhook 不等于线上健康；此前的 Coolify 公网连接问题仍需独立处理。**
+
+### 单实例约束
+
+当前 checker/scheduler 后端应以单实例运行。实时任务总线和 Cron 使用进程内状态，启动恢复也会处理遗留任务。不要直接增加 backend 副本数。见 [ADR：单实例部署](docs/adr/0001-single-instance-deployment.md)。
+
+## 本地开发
+
+需要 Go（遵循 `go.mod`）、Encore CLI、可用的 Docker、Node.js 24 和 Bun `1.3.10`。参考 [Encore 安装说明](https://encore.dev/docs/go/install)。
+
+独立开发时备份 `encore.app` 后移除维护者应用 ID，或在独立本地副本中使用 `{}`。不要提交个人应用 ID、凭据或密钥。根目录创建 `secrets.local.cue`：
 
 ```cue
 JWTSecret: "replace-with-a-long-random-local-secret"
 ```
 
-后端需要的字段名是 `JWTSecret`。部署配置则通过 `JWT_SECRET` 环境变量注入这一字段，二者不要混淆。
-
-### 启动后端
+后端秘密字段名是 `JWTSecret`；自托管镜像通过 `JWT_SECRET` 环境变量注入，两者不要混淆。
 
 ```bash
-# 每次启动都使用你自己的邀请码；生产环境不要使用代码里的默认值。
 export REGISTER_INVITE_CODE='replace-with-your-invite-code'
 encore run --port 4000
-```
-
-### 启动前端
-
-另开一个终端：
-
-```bash
-cd NodePlane/frontend
+# 另开终端
+cd frontend
 bun install --frozen-lockfile
 bun run dev
 ```
 
-前端开发端口为 **3001**。浏览器访问 `http://localhost:3001`，前端通过同源 `/api/*` 转发请求给后端，默认后端地址为 `http://localhost:4000`。需要其他后端时设置 `ENCORE_URL`。
-
-首次进入后，使用上面设置的邀请码注册账户；然后添加订阅分组或单节点，配置检测 URL，运行检测。不要将自己的订阅令牌或代理凭据放进公开截图和 issue。
-
-### 构建前端
+开发前端端口为 3001；同源 `/api/*` 默认转发到 `http://localhost:4000`，通过 `ENCORE_URL` 调整。`encore run` 的开发数据库由 Encore 管理，与生产 Compose 命名卷数据库不是同一个实例。
 
 ```bash
 cd frontend
@@ -108,91 +155,42 @@ bun run build
 ENCORE_URL=http://localhost:4000 bun run start
 ```
 
-生产构建由 Nitro 输出到 `frontend/.output/`，不是仅部署一份静态 `dist/`。前端 API 客户端 `src/lib/client.gen.ts` 和路由文件 `src/routeTree.gen.ts` 为生成文件，不要手工修改。
+生产前端由 Nitro 输出至 `.output/`，不是静态 `dist/`。API 客户端 `src/lib/client.gen.ts` 和路由 `src/routeTree.gen.ts` 是生成文件，不要手工修改。
 
 ## 测试
 
-测试分层运行，避免把“模拟数据页面能打开”当成真实功能验证。
+| 层次 | 入口与范围 |
+| --- | --- |
+| Go 回归 | `encore test -v -count=1 ./...`：业务、解析/导出、规则、事件及数据库回归。 |
+| 前端单元/组件 | `cd frontend && bun run test:unit`：筛选、Cron、SSE、表单与组件适配器。 |
+| 真实 HTTP 功能 | `tests/functional_api.py`：真实 Encore/PostgreSQL 上的功能与权限验证。 |
+| 真实浏览器流程 | `frontend/scripts/functional-browser.mjs`：页面经 `/api` 调用真实后端并核对持久化。 |
+| 界面冒烟 | `frontend/scripts/ui-smoke.mjs`：模拟 API 的主题、导航、窄屏及截图。 |
+| 真实部署回归 | `tests/compose_volume_smoke.py`：实际镜像、空卷、六库迁移、失败阻断和数据持久化。 |
 
-| 层次 | 执行内容 | 入口 |
-| --- | --- | --- |
-| Go 回归 | 业务逻辑、解析/导出、规则、事件与数据库相关回归。 | `encore test -v -count=1 ./...` |
-| 前端单元/组件 | 筛选、Cron、检测参数、SSE 状态、表单和 Asharca 适配器交互。 | `cd frontend && bun run test:unit` |
-| 真实 HTTP 功能 | 注册登录、数据持久化、节点与订阅、检测与取消、计划任务、规则、导出、通知、跨用户隔离等。使用真实 Encore 服务和 PostgreSQL。 | `tests/functional_api.py` |
-| 浏览器功能 | 真实页面操作经 `/api` 代理调用真实后端，并核对请求和保存后的状态。 | `frontend/scripts/functional-browser.mjs` |
-| UI 视觉冒烟 | 明暗主题、响应式布局、导航、错误/空状态及 README 截图。此层使用模拟 API。 | `frontend/scripts/ui-smoke.mjs` |
-| 容器发布回归 | 镜像命名与标签、Compose 引用、真实前后端镜像构建和前端容器 `/login` 启动验证；PR 不推送或部署。 | `tests/test_image_metadata.py`、`.github/workflows/deploy.yml` |
+详细功能测试矩阵见 [测试说明](docs/testing.md)；部署测试及安全边界见 [命名卷部署说明](docs/compose-volumes.md)。不能把模拟页面测试当成真实后端或真实容器部署测试。
 
-详细启动方式、覆盖矩阵、报告位置及边界见 [功能测试说明](docs/testing.md)。GitHub Actions 分别执行前端检查和后端/浏览器功能测试，失败时上传诊断报告。
-
-**真实 API 测试只能对一次性测试实例运行。** 它会创建账户、订阅、节点、任务和通知配置。脚本要求 `NODEPLANE_E2E_DISPOSABLE=1`，并拒绝非 loopback 地址。结束后销毁整个测试实例，不要指向日常使用的本地数据库，更不要指向生产环境。
-
-外部订阅、HTTP 代理、测速目标、Webhook 和 SMTP 使用本地可控测试服务。它们验证本项目的执行链路，不替代真实运营商网络、商业平台解锁、Telegram 云服务或生产邮件服务的现场验收。
-
-## 自托管
-
-### 部署前先检查配置
-
-目前仓库的 `docker-compose.yml` 和 `deploy/infra.config.json` 包含维护者部署环境的示例值，包括数据库地址和域名；**不是复制 `.env.example` 后就能直接运行的通用一键部署模板**。
-
-部署时至少需要完成以下配置：
-
-1. 准备 PostgreSQL，创建 `auth`、`subscription`、`checker`、`scheduler`、`notify`、`settings` 六个数据库，配置专用数据库账户和访问权限。
-2. 同步修改 Compose 的 migrator 数据库地址与 `deploy/infra.config.json` 中的 SQL 主机、TLS、metadata/base URL；配置 NSQ。运行数据库迁移前先备份现有数据。
-3. 构建或选择与你部署分支对应的后端/前端镜像。Compose 默认使用 `ghcr.io/asharca/nodeplane` 和 `ghcr.io/asharca/nodeplane-frontend`；确认对应版本已成功发布。通过 `NODEPLANE_IMAGE_PREFIX` 指定其他仓库前缀，使用 `SUBS_CHECK_IMAGE_TAG` 同时固定两个服务的版本。
-4. 配置随机的 `JWT_SECRET`、`DB_USER`、`DB_PASSWORD`，并将 `REGISTER_INVITE_CODE` 明确传入 backend 容器。确认前端 `ENCORE_URL` 指向 backend 服务。
-5. 在反向代理上启用 HTTPS，妥善保管订阅、代理和导出密钥。验证 SSE 长连接、数据库连接、导出及通知后再对外开放。
-
-镜像仓库路径必须为小写；工作流通过 `.github/scripts/image-metadata.sh` 统一处理 owner/repository，发布标签保留原大小写。`main` 发布完整提交 SHA 与 `latest`，版本标签发布完整 SHA 与对应版本标签。PR 仅构建、检查容器，不登录 GHCR、不推镜像、不触发 Coolify。工作流成功触发 Coolify 不等于线上健康检查通过；仍需检查实际部署状态。
-
-已有 Coolify 应用若使用独立维护的 Compose 或固定镜像地址，也需要同步镜像前缀。需要暂时继续使用历史仓库时，可设置 `NODEPLANE_IMAGE_PREFIX=ghcr.io/renhedata/subs-check-re`；这不会把新代码发布到历史仓库。
-
-示例构建命令：
-
-```bash
-# 从根目录构建后端；先按实际部署环境调整 infra.config.json。
-encore build docker --config deploy/infra.config.json nodeplane-backend:local
-
-# 构建包含 Nitro 服务的前端镜像。
-docker build -t nodeplane-frontend:local ./frontend
-```
-
-### 单实例约束
-
-**当前 checker/scheduler 后端应以单实例运行。** 实时任务总线和 Cron 注册使用进程内状态；启动恢复还会处理遗留运行任务。不要直接通过增加 backend 副本数实现扩容，否则会产生调度和任务状态冲突。见 [ADR：单实例部署](docs/adr/0001-single-instance-deployment.md)。
-
-API 中标记为公开的流式进度端点与密钥导出端点具有独立的访问方式；不能将“其他 API 需要登录”理解为所有公开端点都经过相同的 Bearer 鉴权。
+真实 HTTP 测试要求 `NODEPLANE_E2E_DISPOSABLE=1` 并拒绝非 loopback 地址。部署测试要求 `NODEPLANE_COMPOSE_TEST_DISPOSABLE=1`，使用随机独立项目并在结束时删除其测试卷。**所有破坏性测试只允许针对一次性实例，不得连接日常使用或生产数据库。** 外部订阅、代理、测速、Webhook/SMTP 使用受控夹具，不代表真实运营商网络或生产通知服务已验收。
 
 ## 项目结构
 
 ```text
 NodePlane/
-├── frontend/
-│   ├── src/
-│   │   ├── components/asharca/  Asharca UI 源码与许可
-│   │   ├── components/workbench/ 节点工作台
-│   │   ├── components/platforms/ 规则编辑与调试
-│   │   ├── routes/              文件路由与设置页面
-│   │   ├── queries/             TanStack Query 数据交互
-│   │   └── lib/                 API 客户端及前端工具
-│   ├── server/routes/api/       同源后端代理
-│   ├── scripts/                 浏览器测试
-│   └── docs/                    UI 接入与验证说明
-├── services/
-│   ├── auth/                    注册、登录与账户
-│   ├── subscription/            订阅和节点分组
-│   ├── checker/                 节点检测、规则、进度与导出
-│   ├── scheduler/               定时检测任务
-│   ├── notify/                  通知与报告
-│   └── settings/                用户设置与导出密钥
-├── tests/                       真实 API 功能测试及外部服务夹具
-├── docs/                        测试文档、架构决策、页面截图
-├── deploy/                      部署基础设施与迁移脚本
-└── .github/workflows/            构建与测试流程
+├── frontend/                   React/TanStack 工作台、同源 API 代理与浏览器测试
+│   ├── src/components/asharca/  Asharca UI 源码与许可
+│   ├── src/components/workbench/ 节点工作台
+│   ├── src/components/platforms/ 规则编辑与调试
+│   └── docs/                   UI 接入与验证说明
+├── services/                   auth/subscription/checker/scheduler/notify/settings
+├── tests/                      API、部署回归及外部服务夹具
+├── docs/                       测试文档、架构决策与截图
+├── deploy/                     内部基础设施配置、迁移镜像与脚本
+├── docker-compose.yml          PostgreSQL/NSQ 命名卷和应用服务
+└── .github/workflows/           构建、测试与发布
 ```
 
 ## UI 与贡献
 
-Asharca UI 的来源版本、MIT 许可及为现有 Base UI 接口保留的适配方式，见 [UI 接入说明](frontend/docs/ui-integration.md)。组件许可证只说明对应组件的授权，不自动代表整个仓库采用相同许可证。
+UI 源码版本、MIT 许可与 Base UI 接口适配见 [UI 接入说明](frontend/docs/ui-integration.md)。组件许可证不自动代表整个仓库的许可证。
 
-提交修改前运行相关测试；新增用户功能应包含成功、失败、权限和持久化用例。修改 API 后重新生成客户端，修改 UI 后同时检查浅色、深色和窄屏。截图更新必须使用测试数据，不能暴露真实账户、订阅地址或密钥。
+提交前运行相关测试。新增功能需覆盖成功、失败、权限和持久化；修改 API 后生成客户端；修改 UI 后检查明暗主题与窄屏。截图不得暴露真实账户、订阅或密钥。公开进度/密钥导出端点有独立访问方式，不能将其他 API 的 Bearer 鉴权视为所有端点都已受到同等保护。
