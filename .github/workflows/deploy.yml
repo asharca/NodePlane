@@ -164,21 +164,38 @@ jobs:
         run: |
           : "${COOLIFY_APP_UUID:?Missing COOLIFY_APP_UUID secret}"
           : "${COOLIFY_TOKEN:?Missing COOLIFY_TOKEN secret}"
-          response="$(curl --fail-with-body --silent --show-error --request POST \
+          response="$(curl --silent --show-error --request POST \
             --connect-timeout 15 --max-time 60 \
             "${COOLIFY_API_URL}/deploy" \
             -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
             -H 'Content-Type: application/json' \
-            --data "$(jq -nc --arg uuid "$COOLIFY_APP_UUID" '{uuid: $uuid, force: true}')")"
-          deployment_uuid="$(jq -er '.deployment_uuid' <<<"$response")"
+            --data "$(jq -nc --arg uuid "$COOLIFY_APP_UUID" '{uuid: $uuid, force: true}')" \
+            --write-out $'\nHTTP_STATUS:%{http_code}')"
+          http_status="${response##*$'\n'HTTP_STATUS:}"
+          response="${response%$'\n'HTTP_STATUS:*}"
+          if (( http_status < 200 || http_status >= 300 )); then
+            printf 'Coolify deploy request failed (HTTP %s): %s\n' "$http_status" "$response" >&2
+            exit 1
+          fi
+          deployment_uuid="$(jq -er '.deployments[0].deployment_uuid // .deployment_uuid // empty' <<<"$response")" || {
+            printf 'Coolify deploy response has no deployment UUID: %s\n' "$response" >&2
+            exit 1
+          }
           echo "Coolify deployment: ${deployment_uuid}"
           echo "Coolify deployment UUID: ${deployment_uuid}" >> "$GITHUB_STEP_SUMMARY"
 
           for attempt in $(seq 1 60); do
-            deployment="$(curl --fail-with-body --silent --show-error \
+            deployment="$(curl --silent --show-error \
               --connect-timeout 15 --max-time 30 \
               "${COOLIFY_API_URL}/deployments/${deployment_uuid}" \
-              -H "Authorization: Bearer ${COOLIFY_TOKEN}")"
+              -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+              --write-out $'\nHTTP_STATUS:%{http_code}')"
+            http_status="${deployment##*$'\n'HTTP_STATUS:}"
+            deployment="${deployment%$'\n'HTTP_STATUS:*}"
+            if (( http_status < 200 || http_status >= 300 )); then
+              printf 'Coolify deployment query failed (HTTP %s): %s\n' "$http_status" "$deployment" >&2
+              exit 1
+            fi
             status="$(jq -r '.status // "unknown"' <<<"$deployment")"
             echo "Coolify deployment status: ${status}"
             if [[ "$status" == finished || "$status" == failed || "$status" == error || "$status" == cancelled ]]; then
