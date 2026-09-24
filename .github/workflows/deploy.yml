@@ -154,72 +154,16 @@ jobs:
     needs: [metadata, build-backend, build-frontend]
     if: needs.metadata.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - name: Trigger Coolify deploy
         env:
-          COOLIFY_API_URL: https://coolify.rhzy.ai/api/v1
-          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
-          : "${COOLIFY_APP_UUID:?Missing COOLIFY_APP_UUID secret}"
+          : "${COOLIFY_WEBHOOK:?Missing COOLIFY_WEBHOOK secret}"
           : "${COOLIFY_TOKEN:?Missing COOLIFY_TOKEN secret}"
-          response="$(curl --silent --show-error --request POST \
-            --connect-timeout 15 --max-time 60 \
-            "${COOLIFY_API_URL}/deploy" \
-            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            --data "$(jq -nc --arg uuid "$COOLIFY_APP_UUID" '{uuid: $uuid, force: true}')" \
-            --write-out $'\nHTTP_STATUS:%{http_code}')"
-          http_status="${response##*$'\n'HTTP_STATUS:}"
-          response="${response%$'\n'HTTP_STATUS:*}"
-          if (( http_status < 200 || http_status >= 300 )); then
-            printf 'Coolify deploy request failed (HTTP %s): %s\n' "$http_status" "$response" >&2
-            exit 1
-          fi
-          deployment_uuid="$(jq -er '.deployments[0].deployment_uuid // .deployment_uuid // empty' <<<"$response")" || {
-            printf 'Coolify deploy response has no deployment UUID: %s\n' "$response" >&2
-            exit 1
-          }
-          echo "Coolify deployment: ${deployment_uuid}"
-          echo "Coolify deployment UUID: ${deployment_uuid}" >> "$GITHUB_STEP_SUMMARY"
-
-          for attempt in $(seq 1 60); do
-            deployment="$(curl --silent --show-error \
-              --connect-timeout 15 --max-time 30 \
-              "${COOLIFY_API_URL}/deployments/${deployment_uuid}" \
-              -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
-              --write-out $'\nHTTP_STATUS:%{http_code}')"
-            http_status="${deployment##*$'\n'HTTP_STATUS:}"
-            deployment="${deployment%$'\n'HTTP_STATUS:*}"
-            if (( http_status < 200 || http_status >= 300 )); then
-              printf 'Coolify deployment query failed (HTTP %s): %s\n' "$http_status" "$deployment" >&2
-              exit 1
-            fi
-            status="$(jq -r '.status // "unknown"' <<<"$deployment")"
-            echo "Coolify deployment status: ${status}"
-            if [[ "$status" == finished || "$status" == failed || "$status" == error || "$status" == cancelled ]]; then
-              logs="$(jq -r '
-                .logs // "No deployment logs returned."
-                | if type == "string" then (fromjson? // .) else . end
-                | if type == "array" then
-                    .[] | select(.hidden != true) | "[\(.timestamp // "")][\(.type // "log")] \(.output // "")"
-                  else tostring end
-              ' <<<"$deployment")"
-              printf '%s\n' "$logs"
-              {
-                echo "### Coolify deployment"
-                echo "- UUID: \`${deployment_uuid}\`"
-                echo "- Status: \`${status}\`"
-                echo
-                echo '```text'
-                printf '%s\n' "$logs" | tail -200
-                echo '```'
-              } >> "$GITHUB_STEP_SUMMARY"
-              [[ "$status" == finished ]]
-              exit
-            fi
-            sleep 10
-          done
-          echo 'Coolify deployment did not finish within 10 minutes.' >&2
-          exit 1
+          separator='?'
+          if [[ "$COOLIFY_WEBHOOK" == *\?* ]]; then separator='&'; fi
+          curl --fail-with-body --request POST --connect-timeout 15 --max-time 60 "${COOLIFY_WEBHOOK}${separator}force=true" \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}"
