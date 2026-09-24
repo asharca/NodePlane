@@ -202,11 +202,17 @@ jobs:
               jq -r '.logs // empty' <<<"$deployment" | tail -200
               {
                 echo "### Coolify deployment"
-                echo "- UUID: \\`${deployment_uuid}\\`"
-                echo "- Status: \\`${status}\\`"
+                echo "- UUID: \`${deployment_uuid}\`"
+                echo "- Status: \`${status}\`"
                 echo
                 echo '```text'
-                jq -r '.logs // "No deployment logs returned."' <<<"$deployment" | tail -200
+                jq -r '
+                  .logs // "No deployment logs returned."
+                  | if type == "string" then (fromjson? // .) else . end
+                  | if type == "array" then
+                      .[] | select(.hidden != true) | "[\(.timestamp // "")][\(.type // "log")] \(.output // "")"
+                    else tostring end
+                ' <<<"$deployment" | tail -200
                 echo '```'
               } >> "$GITHUB_STEP_SUMMARY"
               [[ "$status" == finished ]]
