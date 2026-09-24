@@ -165,5 +165,5 @@ jobs:
           : "${COOLIFY_TOKEN:?Missing COOLIFY_TOKEN secret}"
           separator='?'
           if [[ "$COOLIFY_WEBHOOK" == *\?* ]]; then separator='&'; fi
-          curl --fail-with-body --connect-timeout 15 --max-time 60 "${COOLIFY_WEBHOOK}${separator}force=true" \
+          curl --fail-with-body --request POST --connect-timeout 15 --max-time 60 "${COOLIFY_WEBHOOK}${separator}force=true" \
             -H "Authorization: Bearer ${COOLIFY_TOKEN}"
