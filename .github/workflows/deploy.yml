@@ -154,16 +154,48 @@ jobs:
     needs: [metadata, build-backend, build-frontend]
     if: needs.metadata.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - name: Trigger Coolify deploy
         env:
-          COOLIFY_WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK }}
+          COOLIFY_API_URL: https://coolify.rhzy.ai/api/v1
+          COOLIFY_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
         run: |
-          : "${COOLIFY_WEBHOOK:?Missing COOLIFY_WEBHOOK secret}"
+          : "${COOLIFY_APP_UUID:?Missing COOLIFY_APP_UUID secret}"
           : "${COOLIFY_TOKEN:?Missing COOLIFY_TOKEN secret}"
-          separator='?'
-          if [[ "$COOLIFY_WEBHOOK" == *\?* ]]; then separator='&'; fi
-          curl --fail-with-body --request POST --connect-timeout 15 --max-time 60 "${COOLIFY_WEBHOOK}${separator}force=true" \
-            -H "Authorization: Bearer ${COOLIFY_TOKEN}"
+          response="$(curl --fail-with-body --silent --show-error --request POST \
+            --connect-timeout 15 --max-time 60 \
+            "${COOLIFY_API_URL}/deploy" \
+            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data "$(jq -nc --arg uuid "$COOLIFY_APP_UUID" '{uuid: $uuid, force: true}')")"
+          deployment_uuid="$(jq -er '.deployment_uuid' <<<"$response")"
+          echo "Coolify deployment: ${deployment_uuid}"
+          echo "Coolify deployment UUID: ${deployment_uuid}" >> "$GITHUB_STEP_SUMMARY"
+
+          for attempt in $(seq 1 60); do
+            deployment="$(curl --fail-with-body --silent --show-error \
+              --connect-timeout 15 --max-time 30 \
+              "${COOLIFY_API_URL}/deployments/${deployment_uuid}" \
+              -H "Authorization: Bearer ${COOLIFY_TOKEN}")"
+            status="$(jq -r '.status // "unknown"' <<<"$deployment")"
+            echo "Coolify deployment status: ${status}"
+            if [[ "$status" == finished || "$status" == failed || "$status" == error || "$status" == cancelled ]]; then
+              jq -r '.logs // empty' <<<"$deployment" | tail -200
+              {
+                echo "### Coolify deployment"
+                echo "- UUID: \\`${deployment_uuid}\\`"
+                echo "- Status: \\`${status}\\`"
+                echo
+                echo '```text'
+                jq -r '.logs // "No deployment logs returned."' <<<"$deployment" | tail -200
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+              [[ "$status" == finished ]]
+              exit
+            fi
+            sleep 10
+          done
+          echo 'Coolify deployment did not finish within 10 minutes.' >&2
+          exit 1
